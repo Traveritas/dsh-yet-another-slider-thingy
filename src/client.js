@@ -33,7 +33,8 @@ const DEFAULT_SLIDER_STYLE = "compact";
 /**
  * 拖动方式：
  *   step   逐档——指针每动一下就把位置取整到刻度，拇指从不落在两档之间。
- *   smooth 平滑——拇指连续跟手，松手取整到最近档并提交（协议上仍是离散档位）。
+ *   smooth 平滑——拇指连续跟手，读数与高亮停在已提交档，松手取整到最近档并提交
+ *          （协议上仍是离散档位）。
  */
 const SLIDER_DRAGS = [
   { id: "step", label: "逐档" },
@@ -345,7 +346,8 @@ function createThinkingSliderSeat(primitives, report) {
     const [query, setQuery] = React.useState("");
     const [highlighted, setHighlighted] = React.useState(null);
     const [dragIndex, setDragIndex] = React.useState(null);
-    /* 平滑模式下的连续位置（0–1）；逐档模式恒为 null。 */
+    /* 平滑模式下的连续位置（0–1）；逐档模式恒为 null。
+       它只驱动拇指和填充，不参与读数 / 圆点 / aria 的取档。 */
     const [dragRatio, setDragRatio] = React.useState(null);
     /* 逐档从满档往下拖时，特效层宽度先钉在离开前的满档宽度（px），
        免得填充瞬间变窄把粒子整体重排一下再淡出。 */
@@ -410,11 +412,21 @@ function createThinkingSliderSeat(primitives, report) {
       return efforts.findIndex((level) => level.id === pending.reasoningEffort);
     })();
     const settledIndex = effortIndex >= 0 ? effortIndex : efforts.length > 0 ? 0 : -1;
-    const displayIndex = dragIndex !== null ? dragIndex : pendingEffortIndex >= 0 ? pendingEffortIndex : settledIndex;
+    /**
+     * 离散指示（读数 / 圆点 / 刻度高亮 / aria）用哪一档：
+     *   - 逐档拖动：指针始终吸在刻度上，落到哪档就显示哪档；
+     *   - 平滑拖动：停在已提交档，指针只驱动拇指和填充，松手提交后才更新——
+     *     否则连续拖动时每越过一条档位中线，读数和圆点就来回翻一次。
+     */
+    const displayIndex =
+      dragRatio === null && dragIndex !== null ? dragIndex : pendingEffortIndex >= 0 ? pendingEffortIndex : settledIndex;
     const indexRatio = (index) =>
       efforts.length <= 1 ? 0 : Math.max(0, Math.min(index, efforts.length - 1)) / (efforts.length - 1);
     /* 拇指 / 填充的位置：平滑拖动时用连续 ratio，其余按最近档取整。 */
     const ratio = dragRatio !== null ? dragRatio : indexRatio(displayIndex);
+    /* 读数同理：逐档跟指针，平滑拖动中保持已提交档，松手才变。 */
+    const bandValue =
+      dragRatio === null && dragIndex !== null ? efforts[dragIndex]?.name ?? effortLabel : effortLabel;
     const lastIndex = Math.max(0, efforts.length - 1);
     /**
      * Codex 满档特效强度（0–1）：
@@ -801,7 +813,7 @@ function createThinkingSliderSeat(primitives, report) {
                 "div",
                 { className: "dts-bandHead" },
                 h("span", { className: "dts-bandLabel" }, TEXT.effort),
-                h("span", { className: "dts-bandValue", "aria-live": "polite" }, dragIndex !== null ? efforts[dragIndex]?.name ?? effortLabel : effortLabel),
+                h("span", { className: "dts-bandValue", "aria-live": "polite" }, bandValue),
               ),
               h(
                 "div",
@@ -1407,7 +1419,7 @@ function SettingsPanel(props) {
       h(
         "span",
         { className: "dts-settings-hint" },
-        smooth ? "拖动跟手，松手吸附最近档；提交仍是离散档位" : "指针始终吸在刻度上，拖到哪就是哪一档",
+        smooth ? "拖动跟手，读数停在已提交档；松手吸附并提交最近档" : "指针始终吸在刻度上，拖到哪就是哪一档",
       ),
     ),
     h(ColorSection, {

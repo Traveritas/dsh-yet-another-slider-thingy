@@ -487,8 +487,11 @@ react.reset();
   sliderOf().props.onPointerDown({ clientX: at(0.4), pointerId: 1, preventDefault() {} });
   tree = react.render(Seat, props);
   if (sliderOf().props['data-dts-dragging'] === undefined) throw new Error('drag state missing');
-  if (sliderOf().props['aria-valuenow'] !== 1) {
-    throw new Error('smooth drag should report nearest index 1, got ' + sliderOf().props['aria-valuenow']);
+  if (sliderOf().props['aria-valuenow'] !== 2) {
+    throw new Error('smooth drag should keep the committed index 2, got ' + sliderOf().props['aria-valuenow']);
+  }
+  if (textOf(findClass(tree, 'dts-bandValue')) !== 'High') {
+    throw new Error('smooth drag should keep the committed readout, got ' + textOf(findClass(tree, 'dts-bandValue')));
   }
   if (!near(ratioIn(findClass(tree, 'dts-thumb').props.style.left), 0.4)) throw new Error('smooth thumb should follow the pointer');
   if (!near(ratioIn(findClass(tree, 'dts-fill').props.style.width), 0.4)) {
@@ -498,8 +501,11 @@ react.reset();
   sliderOf().props.onPointerMove({ clientX: at(0.9), pointerId: 1 });
   tree = react.render(Seat, props);
   if (!near(ratioIn(findClass(tree, 'dts-thumb').props.style.left), 0.9)) throw new Error('smooth move should stay continuous');
-  if (sliderOf().props['aria-valuetext'] !== 'Max') {
-    throw new Error('smooth move should snap the label to Max, got ' + sliderOf().props['aria-valuetext']);
+  if (sliderOf().props['aria-valuetext'] !== 'High') {
+    throw new Error('smooth move should keep the committed label, got ' + sliderOf().props['aria-valuetext']);
+  }
+  if (textOf(findClass(tree, 'dts-bandValue')) !== 'High') {
+    throw new Error('smooth move should keep the committed readout, got ' + textOf(findClass(tree, 'dts-bandValue')));
   }
 
   sliderOf().props.onPointerUp({ clientX: at(0.9), pointerId: 1 });
@@ -519,6 +525,9 @@ react.reset();
   tree = react.render(Seat, props);
   if (!near(ratioIn(findClass(tree, 'dts-thumb').props.style.left), 1 / 3)) {
     throw new Error('step mode should snap the thumb to a tick, got ' + findClass(tree, 'dts-thumb').props.style.left);
+  }
+  if (sliderOf().props['aria-valuenow'] !== 1 || textOf(findClass(tree, 'dts-bandValue')) !== 'Low') {
+    throw new Error('step drag should preview the tick under the pointer, got ' + textOf(findClass(tree, 'dts-bandValue')));
   }
   sliderOf().props.onPointerUp({ clientX: at(0.4), pointerId: 2 });
   if (selectCalls.length !== 1 || selectCalls[0].reasoningEffort !== 'low') {
@@ -584,8 +593,8 @@ react.reset();
   if (flowOf().props['data-dts-flow-follow'] === undefined) {
     throw new Error('smooth drag should let flow follow the pointer without a transition');
   }
-  if (sliderOf().props['aria-valuenow'] !== 3) {
-    throw new Error('smooth drag should report the max level, got ' + sliderOf().props['aria-valuenow']);
+  if (sliderOf().props['aria-valuenow'] !== 2) {
+    throw new Error('smooth drag should keep the committed level, got ' + sliderOf().props['aria-valuenow']);
   }
 
   sliderOf().props.onPointerMove({ clientX: at(0.95), pointerId: 3 });
@@ -800,4 +809,4 @@ react.reset();
   }
 }
 
-console.log('selftest OK — open / model choose / effort commit / smooth drag + snap / codex flow ramp + hold / clamp / failure rollback / no-effort / unavailable / styles');
+console.log('selftest OK — open / model choose / effort commit / smooth drag freeze + snap / codex flow ramp + hold / clamp / failure rollback / no-effort / unavailable / styles');
