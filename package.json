@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条。Composer model seat with a discrete reasoning-effort slider.",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "index.js",
   "exports": {
-    ".": "./lib/index.js",
+    ".": "./index.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "index.js",
     "lib",
     "src",
     "scripts",
