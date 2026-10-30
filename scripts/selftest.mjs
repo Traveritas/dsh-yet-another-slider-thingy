@@ -615,7 +615,20 @@ react.reset();
   if (flowOf().props.style.opacity !== 1) {
     throw new Error('step mode at max should target full flow strength, got ' + flowOf().props.style.opacity);
   }
-  sliderOf().props.onPointerUp({ clientX: at(0.8), pointerId: 4 });
+
+  /* 从满档往下拖：填充瞬间变窄，但特效层宽度先钉在满档宽度，粒子不会整体挪位。 */
+  sliderOf().props.onPointerMove({ clientX: at(0.6), pointerId: 4 });
+  tree = react.render(Seat, props);
+  if (flowOf().props.style.opacity !== 0) {
+    throw new Error('step drag below max should fade the flow out, got ' + flowOf().props.style.opacity);
+  }
+  if (flowOf().props.style.width !== '86px') {
+    throw new Error('flow width should stay pinned at max while fading, got ' + flowOf().props.style.width);
+  }
+  if (flowOf().props.style.right !== 'auto') {
+    throw new Error('pinned flow should stop following the fill width');
+  }
+  sliderOf().props.onPointerUp({ clientX: at(0.6), pointerId: 4 });
 }
 
 await flush();
@@ -787,4 +800,4 @@ react.reset();
   }
 }
 
-console.log('selftest OK — open / model choose / effort commit / smooth drag + snap / codex flow ramp / clamp / failure rollback / no-effort / unavailable / styles');
+console.log('selftest OK — open / model choose / effort commit / smooth drag + snap / codex flow ramp + hold / clamp / failure rollback / no-effort / unavailable / styles');
