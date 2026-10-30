@@ -77,7 +77,6 @@ function registerThinkingSliderSeat(ctx, report, services) {
     /* 查不到就照常注册，宿主会拒绝同优先级重复 */
   }
 
-  let injectTraces = 0;
   let disposeSlot = null;
   try {
     disposeSlot = ctx.slots.register(
@@ -85,10 +84,6 @@ function registerThinkingSliderSeat(ctx, report, services) {
         name: "conversation.input.model",
         priority: -1,
         inject: (sessionId) => {
-          if (injectTraces < 3) {
-            injectTraces += 1;
-            trace("inject#" + injectTraces + " " + String(sessionId));
-          }
           const directory = models.directoryFor(sessionId);
           const available = sessions.subagentAddress(sessionId) === undefined;
           return {
@@ -879,20 +874,6 @@ const MODES = [
   { id: "off", label: "关" },
 ];
 
-/* 临时诊断：每次状态变化都记一条，启动时没接管可以离线读现场。 */
-function trace(text) {
-  try {
-    const key = PLUGIN_ID + ":trace";
-    const raw = window.localStorage.getItem(key);
-    const list = raw === null ? [] : JSON.parse(raw);
-    const log = Array.isArray(list) ? list : [];
-    log.push({ t: Date.now(), s: String(text) });
-    window.localStorage.setItem(key, JSON.stringify(log.slice(-30)));
-  } catch {
-    /* 隐私模式 / 配额满了就算了 */
-  }
-}
-
 function storedEnabled() {
   try {
     return window.localStorage.getItem(ENABLED_KEY) !== "off";
@@ -970,7 +951,6 @@ function SettingsPanel(props) {
 const inject = ["slots"];
 
 function apply(ctx) {
-  trace("apply");
   installStyles(ctx);
 
   let seatRetries = 0;
@@ -978,16 +958,12 @@ function apply(ctx) {
     ctx.effect(
       () =>
         ctx.slots.onEntryError((key, registration, error, retired) => {
-          const stack = String(error?.stack ?? "")
-            .split(String.fromCharCode(10))
-            .slice(0, 4)
-            .join(" | ");
-          trace(`entryError ${String(key)} retired=${String(retired)} ${error?.message ?? String(error)} :: ${stack}`);
+          /* 冷启动竞态：宿主的 ModelDirectoryResolver 会在 remote.session 就绪前抛错，
+             我们的条目比原生早渲染几毫秒，会被错误边界退役。等一拍换条新条目重来。 */
           if (String(key) !== "conversation.input.model") return;
           if (registration?.component?.displayName !== "ThinkingSliderSeat") return;
           if (seatRetries >= 3) return;
           seatRetries += 1;
-          trace("re-register #" + seatRetries);
           setTimeout(() => {
             release();
             sync();
@@ -1007,7 +983,6 @@ function apply(ctx) {
 
   const setStatus = (text) => {
     const next = String(text ?? "");
-    trace(next);
     if (next.startsWith("已接管（座位已渲染）")) seatRetries = 0;
     if (next === status) return;
     status = next;
@@ -1091,27 +1066,6 @@ function apply(ctx) {
       SettingsPanel,
     ),
   );
-
-  ctx.effect(() => {
-    const timer = setTimeout(() => {
-      let detail = "";
-      try {
-        const spec = typeof ctx.slots.spec === "function" ? ctx.slots.spec("conversation.input.model") : undefined;
-        const list = typeof ctx.slots.entries === "function" ? ctx.slots.entries("conversation.input.model") : [];
-        const live =
-          typeof ctx.slots.entriesOfSlot === "function"
-            ? ctx.slots.entriesOfSlot("conversation.input.model")
-            : [];
-        const winner = Array.isArray(live) ? live[0] : undefined;
-        detail = `slot=${spec === undefined ? "none" : "declared"} entries=${Array.isArray(list) ? list.length : "?"} live=${Array.isArray(live) ? live.length : "?"} livePri=${winner?.options?.priority ?? "none"} ours=${winner?.component?.displayName === "ThinkingSliderSeat"} status=${status}`;
-      } catch (error) {
-        detail = "probe error: " + (error?.message ?? String(error));
-      }
-      trace("4s: " + detail);
-    }, 4000);
-    timer?.unref?.();
-    return () => clearTimeout(timer);
-  }, "thinking-slider: probe");
 
   ctx.effect(() => () => {
     release();

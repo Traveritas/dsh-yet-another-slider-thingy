@@ -37,6 +37,7 @@ D:\Documents\dsh\dsh-thinking-slider
 - 失败：滑条回滚到已提交档，用原生 `Toast`（锚在 composer 卡片上）报错；目录加载失败仍是
   面板内的错误条 + 重试。`available === false`（subagent 会话）整座不渲染。
 - 设置存在 `localStorage["dsh-thinking-slider:enabled"]`，`off` = 关；关掉立刻回原生菜单。
+- **冷启动竞态**：宿主的 `ModelDirectoryResolver` 在 `remote.session` 就绪前会抛 `cannot get property "remote.session" without inject`，本条目比原生早渲染几毫秒，会被错误边界退役。插件在退役后 300ms 自动换一条新条目重注册（最多 3 次），所以启动时可能先看到原生菜单不到半秒；根因在宿主 `ui-model-selection`，值得向上游报。
 
 ## 依赖的宿主契约
 
