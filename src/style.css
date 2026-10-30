@@ -1,0 +1,518 @@
+/* ── 思考强度滑条 · dsh-thinking-slider ─────────────────────────────────
+   顶替 composer 的模型位（conversation.input.model）。尺寸 / 字重 / 行高
+   照抄官方 ModelSelect：触发器 28px、13px 字；菜单 4px 内边距、34px 行；
+   面板材质直接复用宿主 MenuSurface，这里只管排布与滑条本身。
+
+   颜色一律走宿主令牌（--dsw-*），所以任何主题、深浅模式都自动跟。
+   开关关闭、插件卸载、或组件渲染抛错时整段失效，座位回落原生。 */
+
+
+.dts-root {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+/* ── 触发器：与原生模型位逐项对齐 ───────────────────────────────────── */
+.dts-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  min-width: 0;
+  max-width: min(360px, 45cqw);
+  padding: 0 4px 0 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  outline: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.dts-trigger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dts-trigger:focus-visible:not([data-selection-focus]) {
+  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+}
+
+.dts-trigger:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.dts-triggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dts-triggerEffort {
+  flex-shrink: 1000;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dts-chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+  transition: transform 0.12s ease;
+}
+
+.dts-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── 菜单：材质交给 MenuSurface，这里只给尺寸与排布 ─────────────────── */
+.dts-menu {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: min(360px, calc(100vh - 96px));
+  padding: 4px;
+  overflow: hidden;
+  border: 0;
+  box-shadow: var(--dsw-elevation-prominent, 0 12px 32px rgba(0, 0, 0, 0.16));
+  color: var(--dsw-alias-label-primary);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2, rgba(128, 128, 128, 0.32));
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2, rgba(128, 128, 128, 0.48));
+}
+
+/* ── 模型格 ─────────────────────────────────────────────────────────── */
+.dts-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  background: none;
+  outline: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dts-cell:hover,
+.dts-cell:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dts-cellLabel {
+  flex: none;
+  white-space: nowrap;
+}
+
+.dts-cellValue {
+  flex: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dts-cellChevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--dsw-alias-menu-icon);
+}
+
+/* ── 强度带 ─────────────────────────────────────────────────────────── */
+.dts-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 6px;
+}
+
+.dts-bandHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.dts-bandLabel {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dts-bandValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dts-scale {
+  position: relative;
+  padding-top: 4px;
+}
+
+.dts-track {
+  position: relative;
+  height: 20px;
+  border-radius: var(--dsw-radius-sm);
+  outline: none;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.dts-track--busy {
+  cursor: progress;
+}
+
+.dts-rail,
+.dts-fill {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.dts-rail {
+  right: 6px;
+  background: var(--dsw-alias-border-l1);
+}
+
+.dts-fill {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.dts-dot {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-caption);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.dts-dot--on {
+  background: var(--dsw-alias-state-business-primary);
+  opacity: 1;
+}
+
+.dts-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-bg-base);
+  box-shadow:
+    0 0 0 2px var(--dsw-alias-state-business-primary),
+    var(--dsw-elevation-prominent, 0 2px 6px rgba(0, 0, 0, 0.16));
+  pointer-events: none;
+  transition: left 0.12s ease;
+}
+
+.dts-track--busy .dts-thumb {
+  opacity: 0.6;
+}
+
+.dts-track:focus-visible .dts-thumb {
+  box-shadow:
+    0 0 0 2px var(--dsw-alias-state-business-primary),
+    0 0 0 4px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+}
+
+.dts-ticks {
+  display: flex;
+  padding: 0 6px;
+}
+
+.dts-tick {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-caption);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.dts-tick:first-child {
+  text-align: left;
+}
+
+.dts-tick:last-child {
+  text-align: right;
+}
+
+.dts-tick:hover,
+.dts-tick--on {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ── 模型列表 ───────────────────────────────────────────────────────── */
+.dts-searchRow {
+  position: relative;
+  flex-shrink: 0;
+  margin: 2px 0 3px;
+}
+
+.dts-searchRow .dts-search {
+  display: flex;
+  height: auto;
+  padding: 5px 7px;
+  border: 0 solid transparent;
+  border-radius: var(--dsw-radius-md);
+  background: none;
+}
+
+.dts-searchRow .dts-search--filled {
+  padding-right: 34px;
+}
+
+.dts-searchRow .dts-search:focus-within {
+  border-color: transparent;
+}
+
+.dts-searchRow .dts-search input {
+  padding: 0;
+  font-size: 12px;
+  line-height: normal;
+}
+
+.dts-searchRow .dts-search input::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.dts-searchClear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.dts-searchClear:hover,
+.dts-searchClear:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  outline: none;
+}
+
+.dts-groups {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dts-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 100%;
+  min-height: 34px;
+  padding: 5px 7px;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  background: none;
+  outline: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dts-option:hover:not(:disabled),
+.dts-option:focus-visible,
+.dts-option--active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dts-option:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.dts-optionCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dts-modelName {
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dts-check {
+  display: grid;
+  flex: 0 0 14px;
+  place-items: center;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dts-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── 状态 / 错误 / 空 ──────────────────────────────────────────────── */
+.dts-status,
+.dts-empty {
+  padding: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dts-empty {
+  padding: 6px 8px 8px;
+}
+
+.dts-error,
+.dts-warning {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+  padding: 6px 7px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dts-warning {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.dts-retry {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 设置页「思考强度」 ───────────────────────────────────────────────── */
+.dts-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 6px;
+}
+
+.dts-settings-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.dts-settings-title {
+  font-size: 15px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dts-settings-sub {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dts-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dts-settings-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dts-chip {
+  padding: 4px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dts-chip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dts-chip--on {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dts-settings-hint,
+.dts-settings-status {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
