@@ -1,5 +1,5 @@
 /**
- * dsh-thinking-slider —— 浏览器端 bundle（v0.4.0）
+ * dsh-thinking-slider —— 浏览器端 bundle（v0.6.1）
  *
  * 把 DSH composer 的模型位（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
  * 模型行照旧下钻到分组列表，推理强度是带卡位的滑条（逐档 / 平滑两种拖动方式）。面板材质直接用宿主
@@ -21,15 +21,119 @@ const PLUGIN_ID = "dsh-thinking-slider";
 const ENABLED_KEY = PLUGIN_ID + ":enabled";
 const STYLE_KEY = PLUGIN_ID + ":style";
 const SMOOTH_KEY = PLUGIN_ID + ":smooth";
+const EFFECTS_KEY = PLUGIN_ID + ":effects";
+const FX_OPTS_KEY = PLUGIN_ID + ":fx";
+const LABELS_KEY = PLUGIN_ID + ":labels";
 const CSS = __CSS__;
 
-/** 滑条外观：紧凑是原来的细轨，Claude / Codex 共用一套新几何。 */
+/* 像素流光：src/pixel-flow.js，构建时内联到这里（预览页也直接引同一份文件）。
+   里面还有解析 CSS 颜色用的 parseCssColor / readCssColor。 */
+__PIXEL_FLOW__
+
+function useReducedMotion() {
+  const [reduced, setReduced] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(query.matches === true);
+    update();
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", update);
+      return () => query.removeEventListener("change", update);
+    }
+    return undefined;
+  }, []);
+  return reduced;
+}
+
+/**
+ * 流光场的画布：field 只建一次，功率 / 速度 / 减少动效都从 ref 里读，
+ * 所以拖档、换设置都不会重建画布，动画也不会被打断。
+ */
+function FlowCanvas(props) {
+  const canvasRef = React.useRef(null);
+  const live = React.useRef(props);
+  live.current = props;
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas === null) return undefined;
+    const field = createPixelFlow(canvas, {
+      cell: 5,
+      color: () => readCssColor(canvas, ["--dts-flow-color", "--dts-particle-color", "--dts-accent-color"]),
+      power: () => live.current.power,
+      speed: () => live.current.speed,
+      reduced: () => live.current.reduced,
+    });
+    return () => {
+      if (field) field.dispose();
+    };
+  }, []);
+  return h("canvas", { className: "dts-pixelFlow", ref: canvasRef, "aria-hidden": "true" });
+}
+
+/**
+ * 滑条外观只描述形状与材质，颜色交给「配色」。
+ * 紧凑是原来的细轨，块面是暖灰整块 + 圆角方拇指，胶囊是 24px 胶囊轨 + 白圆拇指。
+ */
 const SLIDER_STYLES = [
   { id: "compact", label: "紧凑" },
-  { id: "claude", label: "Claude" },
-  { id: "codex", label: "Codex" },
+  { id: "claude", label: "块面" },
+  { id: "codex", label: "胶囊" },
 ];
 const DEFAULT_SLIDER_STYLE = "compact";
+/**
+ * 特效是四个样式加「关」：流光场 / 密度粒子 / 心跳 / 字符点阵。
+ * auto 跟随外观（只有胶囊那套有），其余直接就是选中的样式。
+ * 强度不在这里定：座位把档位换算成 0–1 的 --dts-power，四个样式共用一根值。
+ * 特效层住在填充里，所以紧凑的 2px 细轨会自动降级成「只有流光」。
+ */
+const EFFECT_MODES = [
+  { id: "off", label: "关" },
+  { id: "auto", label: "跟随外观" },
+  { id: "flow", label: "流光场" },
+  { id: "dust", label: "密度粒子" },
+  { id: "pulse", label: "心跳" },
+  { id: "glyph", label: "字符点阵" },
+];
+const EFFECT_KINDS = ["flow", "dust", "pulse", "glyph"];
+const DEFAULT_EFFECTS = "auto";
+/**
+ * 特效自己的两个设置：
+ *   maxOnly 只在最高档出现（关 = 全程，功率跟档位走）；
+ *   speeds  每个样式各一档速度倍率，存 0.7 / 1 / 1.4。
+ */
+const SPEED_STEPS = [
+  { id: 0.7, label: "慢" },
+  { id: 1, label: "标准" },
+  { id: 1.4, label: "快" },
+];
+const DEFAULT_FX = {
+  maxOnly: false,
+  speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 },
+};
+const DEFAULT_FX_GETTER = () => DEFAULT_FX;
+/** 字符点阵场里跑的字：渲染时首尾各写一遍，translateX(-50%) 才接得回开头。 */
+const GLYPH_TEXT = "01+#×/=:·".repeat(9);
+/**
+ * 底部刻度与外观解耦：auto 跟随外观（块面用两端字，其余档位名）。
+ * ticks 档位名（可点）/ axis 两端字 / none 不显示。
+ */
+const LABEL_FORMS = [
+  { id: "auto", label: "跟随外观" },
+  { id: "ticks", label: "档位名" },
+  { id: "axis", label: "两端字" },
+  { id: "none", label: "不显示" },
+];
+const DEFAULT_LABELS = "auto";
+/** 两端字用这套皮肤自己的措辞：块面的滑条按理解深度方向排。 */
+const AXIS_TEXT = ["Faster", "Smarter"];
+/** 轨道矮于这个高度时粒子放不下，特效降级成只有流光。 */
+const FLOW_THIN_TRACK_H = 24;
+/**
+ * 两端标签可以探出轨道多远：.dts-band 的水平内边距（8px）。
+ * 量宽度时先从 computed style 读，这里只是读不到时的兜底。
+ */
+const LABEL_ROOM = 8;
 /**
  * 拖动方式：
  *   step   逐档——指针每动一下就把位置取整到刻度，拇指从不落在两档之间。
@@ -52,12 +156,14 @@ const SLIDER_GEOMETRY = {
   codex: { pad: 14, thumbW: 28, thumbH: 28, trackH: 28 },
 };
 const DEFAULT_STYLE_GETTER = () => DEFAULT_SLIDER_STYLE;
+const DEFAULT_EFFECTS_GETTER = () => DEFAULT_EFFECTS;
+const DEFAULT_LABELS_GETTER = () => DEFAULT_LABELS;
 const SMOOTH_OFF_GETTER = () => false;
 const NOOP_SUBSCRIBE = () => () => {};
 
-/** 逐档离开满档时特效层钉住宽度的时长：略长于 .dts-flow 的 0.24s opacity 淡出。 */
-const FLOW_HOLD_MS = 320;
-/** Codex 满档时在蓝色填充里横穿的小点；top / duration / delay 都是视觉参数。 */
+/** 等 `remote` / `remote.session` 的看门狗：老宿主没有这两个服务时退回旧路径。 */
+const INJECT_FALLBACK_MS = 3000;
+/** 特效里横穿填充的小点（密度粒子）；top / duration / delay 都是视觉参数。 */
 const FLOW_PARTICLES = [
   { top: 4, duration: 3.2, delay: 0 },
   { top: 9, duration: 3.8, delay: -0.7 },
@@ -70,17 +176,72 @@ const FLOW_PARTICLES = [
 ];
 
 const COLORS_KEY = PLUGIN_ID + ":colors";
+const PALETTES_KEY = PLUGIN_ID + ":palettes";
+const PALETTE_KEY = PLUGIN_ID + ":palette";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-/** main = 直接拉开档位识别度；其余收进「详细配置」。 */
+const AUTO_PALETTE = "auto";
+/**
+ * 配色槽：前四个是主色；后三个收进「详细配置」，没填就跟随外观材质 / 宿主主题。
+ * 空槽不是「黑色」，是「不覆盖」——这是稀疏配色的前提。
+ */
 const COLOR_SLOTS = [
-  { id: "track", label: "轨道", main: true },
-  { id: "fill", label: "进度", main: true },
-  { id: "thumb", label: "拇指", main: true },
-  { id: "accent", label: "强调", main: true },
-  { id: "tick", label: "刻度", main: false },
-  { id: "text", label: "文字", main: false },
-  { id: "particle", label: "粒子", main: false },
+  { id: "fill", label: "进度", group: "main" },
+  { id: "accent", label: "强调", group: "main" },
+  { id: "particle", label: "粒子", group: "main" },
+  { id: "thumb", label: "拇指", group: "main" },
+  { id: "track", label: "轨道", group: "detail" },
+  { id: "tick", label: "刻度", group: "detail" },
+  { id: "text", label: "文字", group: "detail" },
+  /* 特效专用槽：默认留空 = 沿用主色 / 主题色，只在对应特效被选中时出现。 */
+  { id: "flow", label: "流光", group: "fx" },
+  { id: "dust", label: "尘埃", group: "fx" },
+  { id: "pulse", label: "辉光", group: "fx" },
+  { id: "glyph", label: "字符", group: "fx" },
 ];
+const MAIN_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "main");
+const DETAIL_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "detail");
+const FX_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "fx");
+/**
+ * 内置配色：只填四个主色，详细三项留空（它们本来就是各外观的中性材质）。
+ * 设置里改的是本地副本，之后的插件版本不会覆盖用户改过的值。
+ */
+const BUILTIN_PALETTES = [
+  {
+    id: "claude",
+    name: "Claude 风",
+    light: { fill: "#e0dbd6", accent: "#c6613f", particle: "#c6613f", thumb: "#ffffff" },
+    dark: { fill: "#3a3330", accent: "#d97757", particle: "#d97757", thumb: "#f4efe8" },
+  },
+  {
+    id: "codex",
+    name: "Codex 风",
+    light: { fill: "#3a83f7", accent: "#924ff7", particle: "#ffffff", thumb: "#ffffff" },
+    dark: { fill: "#3a83f7", accent: "#ad7bf9", particle: "#ffffff", thumb: "#ffffff" },
+  },
+  {
+    id: "tundra",
+    name: "苔原",
+    light: { fill: "#d3ddc7", accent: "#5a7d48", particle: "#5a7d48", thumb: "#ffffff" },
+    dark: { fill: "#34412f", accent: "#a7c48f", particle: "#a7c48f", thumb: "#f1f5ea" },
+  },
+  {
+    id: "seasalt",
+    name: "海盐",
+    light: { fill: "#cfe0e0", accent: "#4a787c", particle: "#4a787c", thumb: "#ffffff" },
+    dark: { fill: "#2c3c3e", accent: "#8ec6c6", particle: "#8ec6c6", thumb: "#eef7f6" },
+  },
+  {
+    id: "duskrose",
+    name: "暮玫",
+    light: { fill: "#e7d3d5", accent: "#a35a67", particle: "#a35a67", thumb: "#ffffff" },
+    dark: { fill: "#3b2b2e", accent: "#d8959e", particle: "#d8959e", thumb: "#f8eeee" },
+  },
+];
+const BUILTIN_PALETTE_IDS = BUILTIN_PALETTES.map((palette) => palette.id);
+/**
+ * 空槽时色块显示的颜色：按外观取浅色近似值，只用于设置页的取样；
+ * 真正生效的颜色由该外观的 CSS 默认值（含宿主令牌）决定。
+ */
 const DEFAULT_COLORS = {
   compact: {
     track: "#e7e3de",
@@ -90,6 +251,11 @@ const DEFAULT_COLORS = {
     tick: "#8a8580",
     text: "#77736f",
     particle: "#ffffff",
+    /* 特效槽留空时的取样：跟随粒子色（紧凑就是白）。 */
+    flow: "#ffffff",
+    dust: "#ffffff",
+    pulse: "#ffffff",
+    glyph: "#ffffff",
   },
   claude: {
     track: "#edeae8",
@@ -98,7 +264,12 @@ const DEFAULT_COLORS = {
     accent: "#c6613f",
     tick: "#b6b2af",
     text: "#77736f",
-    particle: "#ffffff",
+    /* 和强调色同值：这一套的填充太浅，白粒子看不见。 */
+    particle: "#c6613f",
+    flow: "#c6613f",
+    dust: "#c6613f",
+    pulse: "#c6613f",
+    glyph: "#c6613f",
   },
   codex: {
     track: "#e8e8e8",
@@ -108,14 +279,157 @@ const DEFAULT_COLORS = {
     tick: "#6d6b67",
     text: "#77736f",
     particle: "#ffffff",
+    flow: "#ffffff",
+    dust: "#ffffff",
+    pulse: "#ffffff",
+    glyph: "#ffffff",
   },
 };
 const EMPTY_COLORS = {};
-const EMPTY_COLORS_GETTER = () => EMPTY_COLORS;
+const EMPTY_PALETTES = [];
+const EMPTY_PALETTES_GETTER = () => EMPTY_PALETTES;
+const AUTO_PALETTE_GETTER = () => AUTO_PALETTE;
+const FALSE_GETTER = () => false;
 
 /** 拇指圆心 / 刻度 / 填充共用的位置公式，几何全从 CSS 变量来。 */
 function sliderPosition(ratio) {
   return `calc(var(--dts-pad) + ${ratio} * (100% - var(--dts-pad) * 2))`;
+}
+
+/**
+ * 刻度词的落位：默认中心压在圆点上；盒子探出轨道超过 room 时往里推，刚好贴住边界。
+ * center / width / labelWidth / room 都是 px；返回相对居中位置的位移（正 = 往右）。
+ */
+function clampLabelShift(center, width, labelWidth, room) {
+  const half = labelWidth / 2;
+  const min = half - room;
+  const max = width - half + room;
+  /* 比轨道还宽：交给 max-width 的省略号，硬推只会两头都出界。 */
+  if (!(max >= min)) return 0;
+  const clamped = Math.min(Math.max(center, min), max);
+  return Math.round((clamped - center) * 100) / 100;
+}
+
+/** 位移写进 transform，保留 -50% 的居中；不到半个像素就不写。 */
+function labelShiftTransform(shift) {
+  if (typeof shift !== "number" || Math.abs(shift) < 0.05) return undefined;
+  const sign = shift < 0 ? "-" : "+";
+  return `translateX(calc(-50% ${sign} ${Math.abs(shift)}px))`;
+}
+
+function sameShifts(previous, next) {
+  if (!Array.isArray(previous) || previous.length !== next.length) return false;
+  return next.every((value, index) => Math.abs(value - previous[index]) < 0.05);
+}
+
+/* ── 配色：稀疏的两套值，空槽交给外观材质 / 宿主主题 ────────────────── */
+
+function normalizePaletteId(value) {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : AUTO_PALETTE;
+}
+
+/** 只留已知槽位的 6 位 hex；空槽照样缺席，不做补值。 */
+function sanitizePaletteColors(raw) {
+  const out = {};
+  if (raw === null || typeof raw !== "object") return out;
+  for (const slot of COLOR_SLOTS) {
+    const value = raw[slot.id];
+    if (typeof value === "string" && HEX_COLOR.test(value)) out[slot.id] = value.toLowerCase();
+  }
+  return out;
+}
+
+function sanitizePalette(raw) {
+  if (raw === null || typeof raw !== "object") return null;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  if (id === "" || id === AUTO_PALETTE) return null;
+  const name = typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name.trim().slice(0, 24) : "配色";
+  return { id, name, light: sanitizePaletteColors(raw.light), dark: sanitizePaletteColors(raw.dark) };
+}
+
+function sanitizePalettes(raw) {
+  const list = [];
+  const seen = new Set();
+  if (!Array.isArray(raw)) return list;
+  for (const entry of raw) {
+    const palette = sanitizePalette(entry);
+    if (palette === null || seen.has(palette.id)) continue;
+    seen.add(palette.id);
+    list.push(palette);
+  }
+  return list;
+}
+
+/** 内置配色按出厂顺序排在前；存储里改过的同名项优先，缺的补回来。 */
+function withBuiltins(palettes) {
+  const byId = new Map(palettes.map((palette) => [palette.id, palette]));
+  const head = BUILTIN_PALETTES.map((builtin) => {
+    const stored = byId.get(builtin.id);
+    if (stored === undefined) return { ...builtin, light: { ...builtin.light }, dark: { ...builtin.dark } };
+    byId.delete(builtin.id);
+    return stored;
+  });
+  return [...head, ...byId.values()];
+}
+
+function findPalette(palettes, id) {
+  if (!Array.isArray(palettes)) return undefined;
+  return palettes.find((palette) => palette.id === id);
+}
+
+/** 当前深浅下真正生效的值：深色缺的槽回落到浅色。 */
+function paletteColors(palette, dark) {
+  if (palette === undefined) return EMPTY_COLORS;
+  const light = palette.light ?? EMPTY_COLORS;
+  const mode = dark ? palette.dark ?? EMPTY_COLORS : EMPTY_COLORS;
+  const out = {};
+  for (const slot of COLOR_SLOTS) {
+    const value = mode[slot.id] ?? light[slot.id];
+    if (typeof value === "string") out[slot.id] = value;
+  }
+  return out;
+}
+
+function paletteVars(palette, dark) {
+  const colors = paletteColors(palette, dark);
+  const vars = {};
+  for (const slot of COLOR_SLOTS) {
+    const value = colors[slot.id];
+    if (typeof value === "string") vars[`--dts-${slot.id}-color`] = value;
+  }
+  return vars;
+}
+
+/** 设置页里某个槽的显示值：有值就显示，没有就显示该外观的浅色近似。 */
+function paletteSlotColor(palette, slotId, styleId, dark) {
+  const effective = paletteColors(palette, dark)[slotId];
+  if (typeof effective === "string") return effective;
+  const defaults = DEFAULT_COLORS[styleId] ?? DEFAULT_COLORS[DEFAULT_SLIDER_STYLE];
+  return defaults[slotId] ?? "#000000";
+}
+
+/**
+ * 旧版把自定义颜色按外观存（`{"claude":{"fill":"#…"}}`）。升级时按外观拆成独立配色，
+ * 名字标明来源，并选中当前外观那一套——不静默丢色，也不把两套外观的色硬凑成一袋。
+ */
+function migrateLegacyColors(raw, styleId) {
+  const palettes = [];
+  let activeId = AUTO_PALETTE;
+  if (raw === null || typeof raw !== "object") return { palettes, activeId };
+  for (const style of SLIDER_STYLES) {
+    const colors = sanitizePaletteColors(raw[style.id]);
+    if (Object.keys(colors).length === 0) continue;
+    const palette = {
+      id: `legacy-${style.id}`,
+      name: `旧自定义 · ${style.label}`,
+      light: colors,
+      dark: {},
+    };
+    palettes.push(palette);
+    if (style.id === styleId) activeId = palette.id;
+  }
+  if (activeId === AUTO_PALETTE && palettes.length > 0) activeId = palettes[0].id;
+  return { palettes, activeId };
 }
 
 /**
@@ -196,15 +510,42 @@ function registerThinkingSliderSeat(ctx, report, services) {
               typeof services.style?.subscribe === "function"
                 ? services.style.subscribe(listener)
                 : NOOP_SUBSCRIBE(),
-            getColors: () => (typeof services.colors?.get === "function" ? services.colors.get() : EMPTY_COLORS),
-            subscribeColors: (listener) =>
-              typeof services.colors?.subscribe === "function"
-                ? services.colors.subscribe(listener)
+            getPalette: () =>
+              typeof services.palette?.get === "function" ? services.palette.get() : AUTO_PALETTE,
+            subscribePalette: (listener) =>
+              typeof services.palette?.subscribe === "function"
+                ? services.palette.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getPalettes: () =>
+              typeof services.palettes?.get === "function" ? services.palettes.get() : EMPTY_PALETTES,
+            subscribePalettes: (listener) =>
+              typeof services.palettes?.subscribe === "function"
+                ? services.palettes.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getDark: () => (typeof services.dark?.get === "function" ? services.dark.get() : false),
+            subscribeDark: (listener) =>
+              typeof services.dark?.subscribe === "function"
+                ? services.dark.subscribe(listener)
                 : NOOP_SUBSCRIBE(),
             getSmooth: () => (typeof services.smooth?.get === "function" ? services.smooth.get() : false),
             subscribeSmooth: (listener) =>
               typeof services.smooth?.subscribe === "function"
                 ? services.smooth.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getEffects: () =>
+              typeof services.effects?.get === "function" ? services.effects.get() : DEFAULT_EFFECTS,
+            subscribeEffects: (listener) =>
+              typeof services.effects?.subscribe === "function"
+                ? services.effects.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getFx: () => (typeof services.fx?.get === "function" ? services.fx.get() : DEFAULT_FX),
+            subscribeFx: (listener) =>
+              typeof services.fx?.subscribe === "function" ? services.fx.subscribe(listener) : NOOP_SUBSCRIBE(),
+            getLabels: () =>
+              typeof services.labels?.get === "function" ? services.labels.get() : DEFAULT_LABELS,
+            subscribeLabels: (listener) =>
+              typeof services.labels?.subscribe === "function"
+                ? services.labels.subscribe(listener)
                 : NOOP_SUBSCRIBE(),
           };
         },
@@ -307,10 +648,20 @@ function createThinkingSliderSeat(primitives, report) {
       select,
       getStyle,
       subscribeStyle,
-      getColors,
-      subscribeColors,
+      getPalette,
+      subscribePalette,
+      getPalettes,
+      subscribePalettes,
+      getDark,
+      subscribeDark,
       getSmooth,
       subscribeSmooth,
+      getEffects,
+      subscribeEffects,
+      getFx,
+      subscribeFx,
+      getLabels,
+      subscribeLabels,
     } = props;
 
     const subscribe = React.useCallback((listener) => directory.subscribe(listener), [directory]);
@@ -319,21 +670,48 @@ function createThinkingSliderSeat(primitives, report) {
       typeof subscribeStyle === "function" ? subscribeStyle : NOOP_SUBSCRIBE,
       typeof getStyle === "function" ? getStyle : DEFAULT_STYLE_GETTER,
     );
-    const colors = React.useSyncExternalStore(
-      typeof subscribeColors === "function" ? subscribeColors : NOOP_SUBSCRIBE,
-      typeof getColors === "function" ? getColors : EMPTY_COLORS_GETTER,
+    const paletteId = React.useSyncExternalStore(
+      typeof subscribePalette === "function" ? subscribePalette : NOOP_SUBSCRIBE,
+      typeof getPalette === "function" ? getPalette : AUTO_PALETTE_GETTER,
+    );
+    const palettes = React.useSyncExternalStore(
+      typeof subscribePalettes === "function" ? subscribePalettes : NOOP_SUBSCRIBE,
+      typeof getPalettes === "function" ? getPalettes : EMPTY_PALETTES_GETTER,
+    );
+    const dark = React.useSyncExternalStore(
+      typeof subscribeDark === "function" ? subscribeDark : NOOP_SUBSCRIBE,
+      typeof getDark === "function" ? getDark : FALSE_GETTER,
     );
     const smooth = React.useSyncExternalStore(
       typeof subscribeSmooth === "function" ? subscribeSmooth : NOOP_SUBSCRIBE,
       typeof getSmooth === "function" ? getSmooth : SMOOTH_OFF_GETTER,
     );
+    const effectsMode = React.useSyncExternalStore(
+      typeof subscribeEffects === "function" ? subscribeEffects : NOOP_SUBSCRIBE,
+      typeof getEffects === "function" ? getEffects : DEFAULT_EFFECTS_GETTER,
+    );
+    const labelMode = React.useSyncExternalStore(
+      typeof subscribeLabels === "function" ? subscribeLabels : NOOP_SUBSCRIBE,
+      typeof getLabels === "function" ? getLabels : DEFAULT_LABELS_GETTER,
+    );
+    /* 特效自己的设置：只在最高档 / 每个样式的速度。 */
+    const fxOptions = React.useSyncExternalStore(
+      typeof subscribeFx === "function" ? subscribeFx : NOOP_SUBSCRIBE,
+      typeof getFx === "function" ? getFx : DEFAULT_FX_GETTER,
+    );
+    const reduced = useReducedMotion();
     const geometry = SLIDER_GEOMETRY[styleId] ?? SLIDER_GEOMETRY[DEFAULT_SLIDER_STYLE];
-    const palette = colors?.[styleId] ?? EMPTY_COLORS;
-    const colorVars = {};
-    for (const slot of COLOR_SLOTS) {
-      const value = palette[slot.id];
-      if (typeof value === "string") colorVars[`--dts-${slot.id}-color`] = value;
-    }
+    /* 两轴先解析成具体形态：座位里所有分支只看 effectsKind / labelForm。 */
+    const effectsKind = resolveEffects(normalizeEffects(effectsMode), styleId);
+    const fxMaxOnly = fxOptions.maxOnly === true;
+    const fxSpeed = normalizeFx(fxOptions).speeds[effectsKind] ?? 1;
+    const labelForm = resolveLabels(normalizeLabels(labelMode), styleId);
+    const thinFlow = flowIsThin(geometry);
+    /* 配色是独立一层：自动 = 不覆盖，交给外观 CSS；选中配色则按当前深浅取值。 */
+    const activePaletteId = normalizePaletteId(paletteId);
+    const activePalette =
+      activePaletteId === AUTO_PALETTE ? undefined : findPalette(palettes, activePaletteId);
+    const colorVars = paletteVars(activePalette, dark);
     const scaleVars = {
       "--dts-track-h": `${geometry.trackH}px`,
       "--dts-thumb-w": `${geometry.thumbW}px`,
@@ -349,9 +727,8 @@ function createThinkingSliderSeat(primitives, report) {
     /* 平滑模式下的连续位置（0–1）；逐档模式恒为 null。
        它只驱动拇指和填充，不参与读数 / 圆点 / aria 的取档。 */
     const [dragRatio, setDragRatio] = React.useState(null);
-    /* 逐档从满档往下拖时，特效层宽度先钉在离开前的满档宽度（px），
-       免得填充瞬间变窄把粒子整体重排一下再淡出。 */
-    const [flowHold, setFlowHold] = React.useState(null);
+    /* 刻度词的实测位移（px，按档位下标）；null = 还没量过，先按居中画。 */
+    const [labelShifts, setLabelShifts] = React.useState(null);
     const [menuPos, setMenuPos] = React.useState(null);
     const [toast, setToast] = React.useState(null);
     const [selectionFocus, setSelectionFocus] = React.useState(false);
@@ -360,10 +737,12 @@ function createThinkingSliderSeat(primitives, report) {
     const triggerRef = React.useRef(null);
     const menuRef = React.useRef(null);
     const trackRef = React.useRef(null);
+    /* 特效层：只用来给正在跑的动画乘播放速率（见下面的 effect）。 */
+    const flowRef = React.useRef(null);
+    const labelRefs = React.useRef([]);
     const searchRef = React.useRef(null);
     const groupsRef = React.useRef(null);
     const keyTimer = React.useRef(null);
-    const flowHoldTimer = React.useRef(null);
     const toastSeq = React.useRef(0);
     const lastAction = React.useRef("load");
     const id = React.useId();
@@ -429,26 +808,40 @@ function createThinkingSliderSeat(primitives, report) {
       dragRatio === null && dragIndex !== null ? efforts[dragIndex]?.name ?? effortLabel : effortLabel;
     const lastIndex = Math.max(0, efforts.length - 1);
     /**
-     * Codex 满档特效强度（0–1）：
-     *   - 平滑拖动：从「最近档刚落到最高档」的分界线起，随指针靠近右端连续升高；
-     *   - 逐档 / 点刻度 / 键盘：只给 0 或 1，淡入淡出交给 CSS 的 opacity 过渡。
-     * 两种拖动方式都不会在跨进最高档时硬切。
+     * 特效强度（0–1），四个样式共用：
+     *   - 逐档 / 点刻度 / 键盘：已提交档位在档位序列里的位置，最低档 0、最高档 1；
+     *   - 平滑拖动：直接跟指针（拖动中读数仍停在已提交档，只有特效跟手）；
+     *   - 开了「只在最高档」：只亮最后一格。平滑拖动进出这一格要跟手渐变，所以
+     *     跨过最高档的吸附边界就开始 smoothstep 淡入，到右端满格；逐档 / 键盘
+     *     仍只给 0 或 1，淡入淡出交给 CSS 的 opacity 过渡。
+     *   「只在最高档」的功率不跟 displayIndex 走：平滑拖动时它冻结在已提交档，
+     *   拿它算功率的话，指针在最高档里移动也毫无反应，只有松手提交那一下才翻——
+     *   看上去就是特效凭空出现 / 消失。
+     * CSS 用它算亮度与饱和度，JS 用它乘动画播放速率——一处取值，两边一致。
      */
-    const flowIntensity = (() => {
-      if (styleId !== "codex" || efforts.length <= 1) return 0;
+    const fxPower = (() => {
+      if (effectsKind === null || efforts.length <= 1) return 0;
       if (dragRatio !== null) {
+        if (!fxMaxOnly) return Math.min(1, Math.max(0, dragRatio));
+        /* 最高档那格：从「指针吸附到最高档」的分界线起淡入，边界处正好为 0。 */
         const zoneStart = (lastIndex - 0.5) / lastIndex;
         const t = Math.min(1, Math.max(0, (dragRatio - zoneStart) / (1 - zoneStart)));
         return t * t * (3 - 2 * t);
       }
-      return displayIndex >= lastIndex ? 1 : 0;
+      if (fxMaxOnly) return displayIndex >= lastIndex ? 1 : 0;
+      return indexRatio(displayIndex);
     })();
-    /* 逐档离开满档的淡出期间把特效层宽度钉住：填充已经跳窄，但粒子坐标系先别跟着缩。 */
-    const flowStyle = { opacity: flowIntensity };
-    if (flowHold !== null) {
-      flowStyle.width = `${flowHold}px`;
-      flowStyle.right = "auto";
-    }
+    const flowStyle = { "--dts-power": fxPower };
+    /* 「只在最高档」时 0 就是彻底看不见：把最低档那点底噪也关掉。 */
+    if (fxMaxOnly) flowStyle["--dts-fx-floor"] = 0;
+    /* 速度跟档位走：改 animation-duration 会让在跑的动画跳一格，改播放速率不会。
+       菜单每次打开都会重建特效层、动画从 0 开始，所以 open 也要在依赖里。 */
+    React.useEffect(() => {
+      const node = flowRef.current;
+      if (node === null || typeof node.getAnimations !== "function") return;
+      const rate = (0.55 + 1.7 * fxPower) * fxSpeed;
+      for (const animation of node.getAnimations({ subtree: true })) animation.playbackRate = rate;
+    }, [fxPower, fxSpeed, effectsKind, styleId, open]);
 
     const filteredGroups = React.useMemo(
       () =>
@@ -484,21 +877,12 @@ function createThinkingSliderSeat(primitives, report) {
       setToast({ seq: toastSeq.current, text });
     };
 
-    const clearFlowHold = () => {
-      if (flowHoldTimer.current !== null) {
-        clearTimeout(flowHoldTimer.current);
-        flowHoldTimer.current = null;
-      }
-      setFlowHold(null);
-    };
-
     /* ── 打开 / 关闭 ─────────────────────────────────────────────────── */
     const show = () => {
       setQuery("");
       setHighlighted(null);
       setDragIndex(null);
       setDragRatio(null);
-      clearFlowHold();
       setSelectionFocus(false);
       setPane(currentChoice === undefined ? "model" : "root");
       setOpen(true);
@@ -514,7 +898,6 @@ function createThinkingSliderSeat(primitives, report) {
       setHighlighted(null);
       setDragIndex(null);
       setDragRatio(null);
-      clearFlowHold();
       if (keyTimer.current !== null) {
         clearTimeout(keyTimer.current);
         keyTimer.current = null;
@@ -556,7 +939,6 @@ function createThinkingSliderSeat(primitives, report) {
 
     React.useEffect(() => () => {
       if (keyTimer.current !== null) clearTimeout(keyTimer.current);
-      if (flowHoldTimer.current !== null) clearTimeout(flowHoldTimer.current);
     }, []);
 
     /* 座位真的渲染出来了才报这一句：注册成功但组件崩了的话，状态会停在
@@ -596,6 +978,46 @@ function createThinkingSliderSeat(primitives, report) {
       };
     }, [open, pane, query, state, filteredGroups]);
 
+    /* ── 刻度词落位：居中压在圆点上，盒子要出界才往里让 ──────────────────
+       两端标签居中后有一半落在轨道外，轨道外侧只有 .dts-band 的水平内边距可
+       以借；借完还宽就按实测宽度把词往里推，最多推到贴住内边距外沿。 */
+    React.useLayoutEffect(() => {
+      const count = labelForm === "axis" ? AXIS_TEXT.length : labelForm === "ticks" ? efforts.length : 0;
+      const track = trackRef.current;
+      if (!open || pane !== "root" || count === 0 || track === null) {
+        setLabelShifts(null);
+        return undefined;
+      }
+      let disposed = false;
+      const measure = () => {
+        if (disposed) return;
+        const width = track.clientWidth;
+        const nodes = labelRefs.current.slice(0, count);
+        if (!(width > 0) || nodes.length !== count || nodes.some((node) => node === null || node === undefined)) return;
+        const band = typeof track.closest === "function" ? track.closest(".dts-band") : null;
+        const padding =
+          band === null || typeof getComputedStyle !== "function" ? LABEL_ROOM : parseFloat(getComputedStyle(band).paddingLeft);
+        const room = Number.isFinite(padding) ? padding : LABEL_ROOM;
+        const next = nodes.map((node, index) => {
+          const ratio = count === 1 ? 0 : index / (count - 1);
+          const center = geometry.pad + ratio * (width - geometry.pad * 2);
+          return clampLabelShift(center, width, node.offsetWidth, room);
+        });
+        setLabelShifts((previous) => (sameShifts(previous, next) ? previous : next));
+      };
+      measure();
+      const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+      observer?.observe(track);
+      window.addEventListener?.("resize", measure);
+      const fonts = document.fonts;
+      if (fonts !== undefined && typeof fonts?.ready?.then === "function") fonts.ready.then(measure).catch(() => {});
+      return () => {
+        disposed = true;
+        observer?.disconnect();
+        window.removeEventListener?.("resize", measure);
+      };
+    }, [open, pane, labelForm, styleId, efforts.map((level) => level.id).join("|")]);
+
     /* ── 提交 ─────────────────────────────────────────────────────────── */
     const settle = (result, onSuccess) => {
       if (result === undefined) return;
@@ -605,6 +1027,24 @@ function createThinkingSliderSeat(primitives, report) {
       }
       const code = result.error?.code;
       showToast(code === "session/writer-held" ? TEXT.toastWriterHeld : `${TEXT.toastSelectFailed}：${result.error?.message ?? code ?? ""}`);
+    };
+
+    /**
+     * 提交的唯一入口：select 可能 **同步抛**、也可能 reject（宿主写库失败时不一定
+     * 包成 `{ ok: false }`）。两条路都要落到 Toast，否则用户只看到滑条弹回去。
+     */
+    const runSelection = (selection, onSuccess) => {
+      let promise;
+      try {
+        promise = select(selection);
+      } catch (error) {
+        showToast(`${TEXT.toastSelectFailed}：${error?.message ?? error}`);
+        return;
+      }
+      Promise.resolve(promise).then(
+        (result) => settle(result, onSuccess),
+        (error) => showToast(`${TEXT.toastSelectFailed}：${error?.message ?? error}`),
+      );
     };
 
     const pickEffortFor = (model) => {
@@ -628,9 +1068,7 @@ function createThinkingSliderSeat(primitives, report) {
       lastAction.current = "select";
       setSelectionFocus(true);
       triggerRef.current?.focus();
-      Promise.resolve(select(selection)).then((result) =>
-        settle(result, () => close(true)),
-      );
+      runSelection(selection, () => close(true));
     };
 
     const commitIndex = (index) => {
@@ -652,7 +1090,7 @@ function createThinkingSliderSeat(primitives, report) {
         model: current.model,
         reasoningEffort: level.id,
       };
-      Promise.resolve(select(selection)).then((result) => settle(result, () => {}));
+      runSelection(selection, () => {});
     };
 
     const scheduleCommit = (index) => {
@@ -676,29 +1114,6 @@ function createThinkingSliderSeat(primitives, report) {
 
     const indexAt = (clientX) => Math.round(ratioAt(clientX) * Math.max(0, efforts.length - 1));
 
-    /**
-     * 逐档从满档往下拖：填充会瞬间跳到低档宽度，粒子层的百分比坐标会跟着缩一下。
-     * 淡出这 0.24s 先把特效层宽度钉在满档宽度（由填充的 overflow 裁掉右侧），
-     * 粒子的屏幕位置就不动，只随 opacity 渐隐。
-     */
-    const holdFlowAtMaxWidth = () => {
-      const rect = trackRef.current?.getBoundingClientRect?.();
-      const width = rect === undefined ? 0 : rect.width - geometry.pad;
-      if (!(width > 0)) return;
-      setFlowHold(width);
-      if (flowHoldTimer.current !== null) clearTimeout(flowHoldTimer.current);
-      flowHoldTimer.current = setTimeout(() => {
-        flowHoldTimer.current = null;
-        setFlowHold(null);
-      }, FLOW_HOLD_MS);
-    };
-    const leavesCodexMax = (nextIndex) =>
-      !smooth &&
-      styleId === "codex" &&
-      efforts.length > 1 &&
-      displayIndex >= lastIndex &&
-      nextIndex < lastIndex;
-
     const onTrackPointerDown = (event) => {
       if (busy || efforts.length === 0) return;
       event.preventDefault();
@@ -706,7 +1121,6 @@ function createThinkingSliderSeat(primitives, report) {
       trackRef.current?.setPointerCapture?.(event.pointerId);
       const next = ratioAt(event.clientX);
       const nextIndex = Math.round(next * (efforts.length - 1));
-      if (leavesCodexMax(nextIndex)) holdFlowAtMaxWidth();
       setDragIndex(nextIndex);
       /* 逐档模式不存连续位置：拇指直接落到刻度上。 */
       setDragRatio(smooth ? next : null);
@@ -716,7 +1130,6 @@ function createThinkingSliderSeat(primitives, report) {
       if (dragIndex === null && dragRatio === null) return;
       const next = ratioAt(event.clientX);
       const nextIndex = Math.round(next * Math.max(0, efforts.length - 1));
-      if (leavesCodexMax(nextIndex)) holdFlowAtMaxWidth();
       setDragIndex(nextIndex);
       if (smooth) setDragRatio(next);
     };
@@ -737,12 +1150,11 @@ function createThinkingSliderSeat(primitives, report) {
       else if (event.key === "ArrowRight" || event.key === "ArrowUp") next = Math.min(last, base + 1);
       else if (event.key === "Home") next = 0;
       else if (event.key === "End") next = last;
+      /* 原生 range 也认 PageUp / PageDown；档位只有 3–4 档，按一档走。 */
+      else if (event.key === "PageUp") next = Math.min(last, base + 1);
+      else if (event.key === "PageDown") next = Math.max(0, base - 1);
       if (next === null) return;
       event.preventDefault();
-      /* 键盘切换同样会让填充直接跳到新档；从满档往下时也先钉住特效层。 */
-      if (styleId === "codex" && efforts.length > 1 && displayIndex >= lastIndex && next < lastIndex) {
-        holdFlowAtMaxWidth();
-      }
       /* 键盘从「平滑拖动中的最近档」接管：先收掉连续位置，再走 200ms 防抖提交。 */
       setDragRatio(null);
       scheduleCommit(next);
@@ -825,6 +1237,9 @@ function createThinkingSliderSeat(primitives, report) {
                     className: "dts-track" + (busy ? " dts-track--busy" : ""),
                     role: "slider",
                     "data-dts-dragging": dragIndex !== null ? "" : undefined,
+                    /* 只有平滑拖动需要逐帧跟手；它一出现就由 CSS 关掉过渡。
+                       逐档不设这个标记——跨档时的滑动正是靠外观自带的过渡画出来。 */
+                    "data-dts-follow": dragRatio !== null ? "" : undefined,
                     "data-dts-busy": busy ? "" : undefined,
                     tabIndex: locked ? -1 : 0,
                     "aria-label": TEXT.ariaSlider,
@@ -836,7 +1251,16 @@ function createThinkingSliderSeat(primitives, report) {
                     onPointerDown: onTrackPointerDown,
                     onPointerMove: onTrackPointerMove,
                     onPointerUp: onTrackPointerUp,
-                    onPointerCancel: () => {
+                    onPointerCancel: (event) => {
+                      /* 触摸被系统手势 / 滚动接管：指针捕获和拖动状态都要收掉，
+                         否则下一次悬停会被当成还在拖，松手时凭空提交一档。 */
+                      trackRef.current?.releasePointerCapture?.(event?.pointerId);
+                      setDragIndex(null);
+                      setDragRatio(null);
+                    },
+                    onLostPointerCapture: () => {
+                      /* 正常松手也走这儿：那时拖动状态已由 commitIndex 清掉，直接跳过。 */
+                      if (dragIndex === null && dragRatio === null) return;
                       setDragIndex(null);
                       setDragRatio(null);
                     },
@@ -850,16 +1274,30 @@ function createThinkingSliderSeat(primitives, report) {
                       "aria-hidden": "true",
                       style: { width: sliderPosition(ratio) },
                     },
-                    styleId === "codex" && efforts.length > 1
+                    effectsKind !== null && efforts.length > 1
                       ? h(
                           "span",
                           {
                             className: "dts-flow",
                             "aria-hidden": "true",
+                            ref: flowRef,
+                            "data-dts-fx": effectsKind,
+                            "data-dts-flow": thinFlow ? "thin" : undefined,
                             "data-dts-flow-follow": dragRatio !== null ? "" : undefined,
                             style: flowStyle,
                           },
+                          /* 四个样式把各自的层都放在这里，CSS 按 data-dts-fx 只留一个；
+                             这样切样式不重建 DOM，动画也不会从头开始。 */
+                          h(FlowCanvas, { power: fxPower, speed: fxSpeed, reduced }),
                           h("span", { className: "dts-flowSheen" }),
+                          h("span", { className: "dts-fxGlowSoft" }),
+                          h("span", { className: "dts-fxGlowStrong" }),
+                          h(
+                            "span",
+                            { className: "dts-fxGlyph" },
+                            h("span", { className: "dts-fxGlyphRow" }, GLYPH_TEXT + GLYPH_TEXT),
+                            h("span", { className: "dts-fxGlyphRow dts-fxGlyphRow--b" }, GLYPH_TEXT + GLYPH_TEXT),
+                          ),
                           FLOW_PARTICLES.map((particle, index) =>
                             h(
                               "span",
@@ -870,6 +1308,8 @@ function createThinkingSliderSeat(primitives, report) {
                                   "--dts-flow-top": `${particle.top}px`,
                                   "--dts-flow-duration": `${particle.duration}s`,
                                   "--dts-flow-delay": `${particle.delay}s`,
+                                  /* 密度粒子用它决定「这颗要不要亮」：第 i 颗在功率越过 i/8 后出现。 */
+                                  "--dts-fx-i": String(index / FLOW_PARTICLES.length),
                                 },
                               },
                               h("i", {}),
@@ -881,10 +1321,7 @@ function createThinkingSliderSeat(primitives, report) {
                   efforts.map((level, index) =>
                     h("span", {
                       key: level.id,
-                      className:
-                        "dts-dot" +
-                        (index <= displayIndex ? " dts-dot--on" : "") +
-                        (index === efforts.length - 1 ? " dts-dot--last" : ""),
+                      className: "dts-dot" + (index <= displayIndex ? " dts-dot--on" : ""),
                       "aria-hidden": "true",
                       style: { left: sliderPosition(index / Math.max(1, efforts.length - 1)) },
                     }),
@@ -895,33 +1332,57 @@ function createThinkingSliderSeat(primitives, report) {
                     style: { left: sliderPosition(ratio) },
                   }),
                 ),
-                styleId === "claude"
-                  ? h(
-                      "div",
-                      { className: "dts-axis", "aria-hidden": "true" },
-                      h("span", null, "Faster"),
-                      h("span", null, "Smarter"),
-                    )
-                  : h(
-                      "div",
-                      { className: "dts-ticks" },
-                      efforts.map((level, index) =>
-                        h(
-                          "button",
-                          {
-                            key: level.id,
-                            type: "button",
-                            tabIndex: -1,
-                            "aria-label": level.name,
-                            className: "dts-tick" + (index === displayIndex ? " dts-tick--on" : ""),
-                            onClick: () => {
-                              if (!busy) commitIndex(index);
+                labelForm === "none"
+                  ? null
+                  : labelForm === "axis"
+                    ? h(
+                        "div",
+                        { className: "dts-axis", "aria-hidden": "true" },
+                        AXIS_TEXT.map((label, index) =>
+                          h(
+                            "span",
+                            {
+                              key: label,
+                              className: "dts-axisLabel",
+                              ref: (node) => {
+                                labelRefs.current[index] = node;
+                              },
+                              style: {
+                                left: sliderPosition(index),
+                                transform: labelShiftTransform(labelShifts?.[index]),
+                              },
                             },
-                          },
-                          level.name,
+                            label,
+                          ),
+                        ),
+                      )
+                    : h(
+                        "div",
+                        { className: "dts-ticks", style: { "--dts-levels": efforts.length } },
+                        efforts.map((level, index) =>
+                          h(
+                            "button",
+                            {
+                              key: level.id,
+                              type: "button",
+                              tabIndex: -1,
+                              "aria-label": level.name,
+                              className: "dts-tick" + (index === displayIndex ? " dts-tick--on" : ""),
+                              ref: (node) => {
+                                labelRefs.current[index] = node;
+                              },
+                              style: {
+                                left: sliderPosition(index / Math.max(1, efforts.length - 1)),
+                                transform: labelShiftTransform(labelShifts?.[index]),
+                              },
+                              onClick: () => {
+                                if (!busy) commitIndex(index);
+                              },
+                            },
+                            level.name,
+                          ),
                         ),
                       ),
-                    ),
               ),
             );
 
@@ -1174,6 +1635,37 @@ function normalizeDrag(value) {
   return value === "smooth" ? "smooth" : DEFAULT_SLIDER_DRAG;
 }
 
+function normalizeEffects(value) {
+  /* 旧版的「开」就是胶囊那套流光 + 粒子：升级后归到密度粒子，不算丢设置。 */
+  if (value === "on") return "dust";
+  if (value === "off" || value === "auto") return value;
+  return EFFECT_KINDS.includes(value) ? value : DEFAULT_EFFECTS;
+}
+
+function normalizeLabels(value) {
+  return value === "ticks" || value === "axis" || value === "none" ? value : DEFAULT_LABELS;
+}
+
+/**
+ * 特效该画哪一个：返回样式 id，或 null（不画）。
+ * auto 只有胶囊那套有；与外观分家之后，这里就是座位与设置面板共用的唯一判定。
+ */
+function resolveEffects(mode, styleId) {
+  if (mode === "auto") return styleId === "codex" ? "dust" : null;
+  return EFFECT_KINDS.includes(mode) ? mode : null;
+}
+
+/** 底部刻度形态：auto 时块面用两端字，其余用档位名。 */
+function resolveLabels(mode, styleId) {
+  if (mode === "ticks" || mode === "axis" || mode === "none") return mode;
+  return styleId === "claude" ? "axis" : "ticks";
+}
+
+/** 粒子要不要画：细轨（紧凑）只留流光。 */
+function flowIsThin(geometry) {
+  return geometry.trackH < FLOW_THIN_TRACK_H;
+}
+
 function storedStyle() {
   try {
     return normalizeStyle(window.localStorage.getItem(STYLE_KEY));
@@ -1207,37 +1699,148 @@ function rememberSmooth(value) {
   }
 }
 
-function sanitizeColors(raw) {
-  const out = {};
-  if (raw === null || typeof raw !== "object") return out;
-  for (const styleId of ["compact", "claude", "codex"]) {
-    const source = raw[styleId];
-    if (source === null || typeof source !== "object") continue;
-    for (const slot of COLOR_SLOTS) {
-      const value = source[slot.id];
-      if (typeof value === "string" && HEX_COLOR.test(value)) {
-        out[styleId] ??= {};
-        out[styleId][slot.id] = value.toLowerCase();
-      }
-    }
+function storedEffects() {
+  try {
+    return normalizeEffects(window.localStorage.getItem(EFFECTS_KEY));
+  } catch {
+    return DEFAULT_EFFECTS;
   }
-  return out;
 }
 
-function storedColors() {
+function rememberEffects(value) {
   try {
-    return sanitizeColors(JSON.parse(window.localStorage.getItem(COLORS_KEY) || "{}"));
+    window.localStorage.setItem(EFFECTS_KEY, normalizeEffects(value));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+/** 特效自己的设置（只在最高档 / 每个样式的速度）；坏值一律回默认，不半信半疑。 */
+function normalizeFx(value) {
+  const source = value !== null && typeof value === "object" ? value : {};
+  const speeds = source.speeds !== null && typeof source.speeds === "object" ? source.speeds : {};
+  const next = { maxOnly: source.maxOnly === true, speeds: {} };
+  for (const kind of EFFECT_KINDS) {
+    const speed = Number(speeds[kind]);
+    next.speeds[kind] = SPEED_STEPS.some((step) => step.id === speed) ? speed : 1;
+  }
+  return next;
+}
+
+function storedFx() {
+  try {
+    return normalizeFx(JSON.parse(window.localStorage.getItem(FX_OPTS_KEY) ?? "null"));
+  } catch {
+    return normalizeFx(null);
+  }
+}
+
+function rememberFx(value) {
+  try {
+    window.localStorage.setItem(FX_OPTS_KEY, JSON.stringify(normalizeFx(value)));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+function storedLabels() {
+  try {
+    return normalizeLabels(window.localStorage.getItem(LABELS_KEY));
+  } catch {
+    return DEFAULT_LABELS;
+  }
+}
+
+function rememberLabels(value) {
+  try {
+    window.localStorage.setItem(LABELS_KEY, normalizeLabels(value));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+function storedLegacyColors() {
+  try {
+    return JSON.parse(window.localStorage.getItem(COLORS_KEY) || "{}");
   } catch {
     return {};
   }
 }
 
-function rememberColors(value) {
+function storedPalettes() {
   try {
-    window.localStorage.setItem(COLORS_KEY, JSON.stringify(value));
+    return withBuiltins(sanitizePalettes(JSON.parse(window.localStorage.getItem(PALETTES_KEY) || "[]")));
+  } catch {
+    return withBuiltins([]);
+  }
+}
+
+function rememberPalettes(value) {
+  try {
+    window.localStorage.setItem(PALETTES_KEY, JSON.stringify(value));
   } catch {
     /* 存不了就只在本次运行里生效 */
   }
+}
+
+function storedPaletteId() {
+  try {
+    return normalizePaletteId(window.localStorage.getItem(PALETTE_KEY));
+  } catch {
+    return AUTO_PALETTE;
+  }
+}
+
+function rememberPaletteId(value) {
+  try {
+    window.localStorage.setItem(PALETTE_KEY, normalizePaletteId(value));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+/** 迁移只看一次：存储里出现过 `:palettes`（哪怕空数组）就算已经迁移过。 */
+function hasStoredPalettes() {
+  try {
+    return window.localStorage.getItem(PALETTES_KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 当前深浅：宿主编排页把 `data-ds-dark-theme` 挂在 body 上，CSS 与这里读同一个标记。
+ * 拿不到 body 时按浅色处理。
+ */
+function createDarkStore() {
+  const listeners = new Set();
+  let dark = false;
+  const read = () => {
+    try {
+      dark = document.body.hasAttribute("data-ds-dark-theme");
+    } catch {
+      dark = false;
+    }
+  };
+  read();
+  let observer = null;
+  if (typeof MutationObserver === "function" && typeof document !== "undefined" && document.body) {
+    observer = new MutationObserver(() => {
+      const previous = dark;
+      read();
+      if (previous === dark) return;
+      for (const fn of listeners) fn();
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+  }
+  return {
+    get: () => dark,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    dispose: () => observer?.disconnect(),
+  };
 }
 
 function storedEnabled() {
@@ -1270,60 +1873,131 @@ function installStyles(ctx) {
 }
 
 function ColorRow(props) {
-  const value = props.value ?? props.fallback;
   return h(
-    "label",
-    { className: "dts-colorRow" },
+    "div",
+    { className: "dts-colorRow" + (props.overridden ? "" : " dts-colorRow--auto") },
     h("span", { className: "dts-colorLabel" }, props.label),
     h("input", {
       type: "color",
       className: "dts-colorInput",
-      value,
+      value: props.value,
       "aria-label": `${props.label}颜色`,
       onChange: (event) => props.onPick(event.target.value),
     }),
-    h("span", { className: "dts-colorValue" }, value.toUpperCase()),
+    h("span", {
+      className: "dts-colorValue" + (props.inherited ? " dts-colorValue--inherited" : ""),
+      title: props.inherited ? "深色没单独设置，沿用浅色值" : undefined,
+    }, props.overridden ? props.value.toUpperCase() : "跟随主题"),
+    props.overridden
+      ? h(
+          "button",
+          {
+            type: "button",
+            className: "dts-colorClear",
+            title: "恢复跟随主题",
+            "aria-label": `${props.label}恢复跟随主题`,
+            onClick: () => props.onClear(),
+          },
+          "↺",
+        )
+      : null,
   );
 }
 
+/** 某个槽在任一深浅里有没有值：决定显示「跟随主题」还是色值 + 重置按钮。 */
+function paletteHasSlot(palette, slotId) {
+  if (palette === undefined) return false;
+  return typeof palette.light?.[slotId] === "string" || typeof palette.dark?.[slotId] === "string";
+}
+
 function ColorSection(props) {
-  const defaults = DEFAULT_COLORS[props.appearance] ?? {};
-  const main = COLOR_SLOTS.filter((slot) => slot.main);
-  const detail = COLOR_SLOTS.filter(
-    (slot) => !slot.main && (slot.id !== "particle" || props.appearance === "codex"),
-  );
-  const row = (slot) =>
+  const { palette, styleId, mode, showParticle, fxKind } = props;
+  const main = MAIN_SLOTS.filter((slot) => slot.id !== "particle" || showParticle);
+  /* 特效色只有一个槽，跟着当前特效走；没开特效就不出现。 */
+  const fxSlots = FX_SLOTS.filter((slot) => slot.id === fxKind);
+  const rowFor = (slot) =>
     h(ColorRow, {
       key: slot.id,
       label: slot.label,
-      value: props.palette[slot.id],
-      fallback: defaults[slot.id],
-      onPick: (value) => props.onPick(slot.id, value),
+      value: paletteSlotColor(palette, slot.id, styleId, mode === "dark"),
+      overridden: paletteHasSlot(palette, slot.id),
+      inherited:
+        mode === "dark" && palette?.dark?.[slot.id] === undefined && typeof palette?.light?.[slot.id] === "string",
+      onPick: (value) => props.onPick(mode, slot.id, value),
+      onClear: () => props.onClear(slot.id),
     });
+  const anyOverride = COLOR_SLOTS.some((slot) => paletteHasSlot(palette, slot.id));
   return h(
     "div",
     { className: "dts-colors" },
-    h(
-      "div",
-      { className: "dts-colorsHead" },
-      h("span", { className: "dts-settings-label" }, "颜色"),
+    settingsRow("颜色", [
+      h(
+        "div",
+        { key: "modes", className: "dts-modeTabs" },
+        [
+          ["light", "浅色"],
+          ["dark", "深色"],
+        ].map(([id, label]) =>
+          h(
+            "button",
+            {
+              key: id,
+              type: "button",
+              className: "dts-modeTab" + (mode === id ? " dts-modeTab--on" : ""),
+              "aria-pressed": mode === id,
+              onClick: () => props.onMode(id),
+            },
+            label,
+          ),
+        ),
+      ),
       h(
         "button",
-        { type: "button", className: "dts-colorReset", onClick: () => props.onReset() },
+        { key: "reset", type: "button", className: "dts-colorReset", onClick: () => props.onReset() },
         "恢复默认",
       ),
+    ]),
+    anyOverride
+      ? null
+      : h("span", { className: "dts-colorsHint" }, "这套配色还没动过：主色跟随外观，详细三项跟随主题。"),
+    main.map(rowFor),
+    fxSlots.length === 0
+      ? null
+      : h(
+          "div",
+          { className: "dts-colorsFx" },
+          fxSlots.map(rowFor),
+          h("span", { className: "dts-colorsHint" }, "留空 = 跟随粒子色 / 主题色，不会盖掉主色。"),
+        ),
+    h(
+      "details",
+      { className: "dts-colorsDetails" },
+      h("summary", null, "详细配置"),
+      DETAIL_SLOTS.map(rowFor),
+      h("span", { className: "dts-colorsHint" }, "空槽 = 跟随主题；改了会写进这套配色，深浅各自记。"),
     ),
-    main.map(row),
-    detail.length > 0
-      ? h(
-          "details",
-          { className: "dts-colorsDetails" },
-          h("summary", null, "详细配置"),
-          detail.map(row),
-        )
-      : null,
-    h("span", { className: "dts-colorsHint" }, props.hint),
   );
+}
+
+/**
+ * 设置页的一行：标签 / 控件 / 右侧说明。
+ * 说明独占右边一列，不跟着芯片换行；窄容器里由 CSS 收到控件下面。
+ */
+function settingsRow(label, controls, hint) {
+  return h(
+    "div",
+    { className: "dts-settings-row" },
+    h("span", { className: "dts-settings-label" }, label),
+    h("div", { className: "dts-controls" }, controls),
+    hint === undefined || hint === null || hint === ""
+      ? null
+      : h("span", { className: "dts-settings-hint" }, hint),
+  );
+}
+
+/** 类别标题：一个短词加一条向右收的细线，行与行之间靠留白分开。 */
+function settingsGroup(label) {
+  return h("div", { className: "dts-group" }, h("span", { className: "dts-group-label" }, label));
 }
 
 function SettingsPanel(props) {
@@ -1331,8 +2005,13 @@ function SettingsPanel(props) {
     enabled: props.getEnabled(),
     status: props.getStatus(),
     style: props.getStyle(),
-    colors: props.getColors(),
     smooth: props.getSmooth(),
+    effects: props.getEffects(),
+    fx: props.getFx(),
+    labels: props.getLabels(),
+    palette: props.getPalette(),
+    palettes: props.getPalettes(),
+    dark: props.getDark(),
   }));
   React.useEffect(() => {
     const read = () =>
@@ -1340,18 +2019,63 @@ function SettingsPanel(props) {
         enabled: props.getEnabled(),
         status: props.getStatus(),
         style: props.getStyle(),
-        colors: props.getColors(),
         smooth: props.getSmooth(),
+        effects: props.getEffects(),
+        fx: props.getFx(),
+        labels: props.getLabels(),
+        palette: props.getPalette(),
+        palettes: props.getPalettes(),
+        dark: props.getDark(),
       });
     read();
     return props.subscribe(read);
   }, [props]);
+  /* 颜色编辑在浅色 / 深色两页之间切；默认停在当前模式。 */
+  const [mode, setMode] = React.useState(() => (props.getDark() ? "dark" : "light"));
+  /* 名称输入的草稿：输入时不动 store，失焦或回车才提交，免得中文输入法被打断。 */
+  const [nameDraft, setNameDraft] = React.useState(null);
   const enabled = state.enabled;
   const style = normalizeStyle(state.style);
   const smooth = Boolean(state.smooth);
-  const palette = state.colors?.[style] ?? {};
+  const effectsMode = normalizeEffects(state.effects);
+  const labelMode = normalizeLabels(state.labels);
+  const effectsKind = resolveEffects(effectsMode, style);
+  const fxOptions = normalizeFx(state.fx);
+  const fxKindLabel = EFFECT_MODES.find((entry) => entry.id === effectsKind)?.label ?? "当前特效";
+  const labelForm = resolveLabels(labelMode, style);
+  const thin = flowIsThin(SLIDER_GEOMETRY[style]);
+  const paletteId = normalizePaletteId(state.palette);
+  const palettes = Array.isArray(state.palettes) ? state.palettes : EMPTY_PALETTES;
+  const activePalette = paletteId === AUTO_PALETTE ? undefined : findPalette(palettes, paletteId);
+  const activeBuiltin = activePalette !== undefined && BUILTIN_PALETTE_IDS.includes(activePalette.id);
   const status = String(state.status ?? "");
   const showStatus = enabled && status !== "" && !status.startsWith("已接管");
+  const effectsHint =
+    effectsMode === "auto"
+      ? `跟随外观：${style === "codex" ? "胶囊自带密度粒子" : "这套外观不画特效"}`
+      : effectsKind === null
+        ? "填充里不画特效"
+        : thin
+          ? "紧凑的细轨只走一道流光，放不下粒子与字符"
+          : "档位越高越亮、越鲜艳、越快";
+  const labelsHint =
+    labelMode === "auto"
+      ? `跟随外观：现在用${labelForm === "axis" ? "两端字" : "档位名"}`
+      : labelForm === "ticks"
+        ? "每档一个名字，点一下换档"
+        : labelForm === "axis"
+          ? "只留两端措辞，换档靠拖轨道或键盘"
+          : "底下不留刻度行";
+  const paletteName =
+    nameDraft !== null && activePalette !== undefined && nameDraft.id === activePalette.id
+      ? nameDraft.name
+      : activePalette?.name ?? "";
+  const commitName = () => {
+    if (nameDraft === null || activePalette === undefined || nameDraft.id !== activePalette.id) return;
+    const next = nameDraft.name.trim();
+    setNameDraft(null);
+    if (next !== "" && next !== activePalette.name) props.renamePalette(activePalette.id, next);
+  };
   return h(
     "div",
     { className: "dts-settings" },
@@ -1359,12 +2083,11 @@ function SettingsPanel(props) {
       "div",
       { className: "dts-settings-head" },
       h("span", { className: "dts-settings-title" }, "模型位 · 思考强度"),
-      h("span", { className: "dts-settings-sub" }, "composer 的模型菜单换成模型行 + 强度滑条"),
+      h("span", { className: "dts-settings-sub" }, "Composer 的模型菜单换成模型行 + 强度滑条"),
     ),
-    h(
-      "div",
-      { className: "dts-settings-row" },
-      h("span", { className: "dts-settings-label" }, "接管"),
+    settingsGroup("滑条"),
+    settingsRow(
+      "接管",
       MODES.map((mode) =>
         h(
           "button",
@@ -1378,12 +2101,10 @@ function SettingsPanel(props) {
           mode.label,
         ),
       ),
-      h("span", { className: "dts-settings-hint" }, enabled ? "模型位由本插件接管" : "使用 DSH 原生模型菜单"),
+      enabled ? "模型位由本插件接管" : "使用 DSH 原生模型菜单",
     ),
-    h(
-      "div",
-      { className: "dts-settings-row" },
-      h("span", { className: "dts-settings-label" }, "外观"),
+    settingsRow(
+      "外观",
       SLIDER_STYLES.map((entry) =>
         h(
           "button",
@@ -1397,12 +2118,27 @@ function SettingsPanel(props) {
           entry.label,
         ),
       ),
-      h("span", { className: "dts-settings-hint" }, "只改滑条材质，不改档位与提交"),
+      "只改形状与材质，颜色看下面的配色",
     ),
-    h(
-      "div",
-      { className: "dts-settings-row" },
-      h("span", { className: "dts-settings-label" }, "滑动"),
+    settingsRow(
+      "刻度",
+      LABEL_FORMS.map((entry) =>
+        h(
+          "button",
+          {
+            key: entry.id,
+            type: "button",
+            className: "dts-chip" + (labelMode === entry.id ? " dts-chip--on" : ""),
+            "aria-pressed": labelMode === entry.id,
+            onClick: () => props.selectLabels(entry.id),
+          },
+          entry.label,
+        ),
+      ),
+      labelsHint,
+    ),
+    settingsRow(
+      "滑动",
       SLIDER_DRAGS.map((entry) =>
         h(
           "button",
@@ -1416,22 +2152,158 @@ function SettingsPanel(props) {
           entry.label,
         ),
       ),
-      h(
-        "span",
-        { className: "dts-settings-hint" },
-        smooth ? "拖动跟手，读数停在已提交档；松手吸附并提交最近档" : "指针始终吸在刻度上，拖到哪就是哪一档",
-      ),
+      smooth ? "拖动跟手，读数停在已提交档；松手吸附并提交最近档" : "指针始终吸在刻度上，拖到哪就是哪一档",
     ),
-    h(ColorSection, {
-      appearance: style,
-      palette,
-      hint:
-        style === "compact"
-          ? "紧凑默认跟随主题；改动某个槽后，该槽覆盖主题色。"
-          : "自定义颜色深浅共用；不改为各主题默认。",
-      onPick: (slot, value) => props.selectColor(style, slot, value),
-      onReset: () => props.resetColors(style),
-    }),
+    settingsGroup("特效"),
+    settingsRow(
+      "特效",
+      EFFECT_MODES.map((entry) =>
+        h(
+          "button",
+          {
+            key: entry.id,
+            type: "button",
+            className: "dts-chip" + (effectsMode === entry.id ? " dts-chip--on" : ""),
+            "aria-pressed": effectsMode === entry.id,
+            onClick: () => props.selectEffects(entry.id),
+          },
+          entry.label,
+        ),
+      ),
+      effectsHint,
+    ),
+    /* 下面两行只在真有特效时出现：关掉 / 这套外观没有特效时留着没意义。 */
+    effectsKind === null
+      ? null
+      : settingsRow(
+          "强度",
+          [
+            ["all", "全程跟档"],
+            ["max", "只在最高档"],
+          ].map(([id, label]) =>
+            h(
+              "button",
+              {
+                key: id,
+                type: "button",
+                className: "dts-chip" + (fxOptions.maxOnly === (id === "max") ? " dts-chip--on" : ""),
+                "aria-pressed": fxOptions.maxOnly === (id === "max"),
+                onClick: () => props.selectFxMax(id === "max"),
+              },
+              label,
+            ),
+          ),
+          fxOptions.maxOnly ? "只有最高档才画，离开就淡出" : "档位越高越亮、越鲜艳、越快",
+        ),
+    effectsKind === null
+      ? null
+      : settingsRow(
+          "速度",
+          SPEED_STEPS.map((step) =>
+            h(
+              "button",
+              {
+                key: step.id,
+                type: "button",
+                className: "dts-chip" + (fxOptions.speeds[effectsKind] === step.id ? " dts-chip--on" : ""),
+                "aria-pressed": fxOptions.speeds[effectsKind] === step.id,
+                onClick: () => props.selectFxSpeed(effectsKind, step.id),
+              },
+              step.label,
+            ),
+          ),
+          `只作用于${fxKindLabel}；档位本身也会改速度`,
+        ),
+    settingsGroup("配色"),
+    settingsRow(
+      "配色",
+      [
+        ...[{ id: AUTO_PALETTE, name: "自动" }, ...palettes].map((entry) =>
+          h(
+            "button",
+            {
+              key: entry.id,
+              type: "button",
+              className: "dts-chip" + (paletteId === entry.id ? " dts-chip--on" : ""),
+              "aria-pressed": paletteId === entry.id,
+              onClick: () => {
+                setNameDraft(null);
+                props.selectPalette(entry.id);
+              },
+            },
+            entry.name,
+          ),
+        ),
+        h(
+          "button",
+          {
+            key: "add",
+            type: "button",
+            className: "dts-chip dts-chip--add",
+            onClick: () => {
+              setNameDraft(null);
+              props.addPalette();
+            },
+          },
+          "＋ 新增",
+        ),
+      ],
+      activePalette === undefined ? "不覆盖颜色：跟着外观与主题走" : activePalette.name + "：改动立刻生效",
+    ),
+    activePalette === undefined
+      ? null
+      : settingsRow(
+          "名称",
+          [
+            h("input", {
+              key: "name",
+              type: "text",
+              className: "dts-paletteName",
+              value: paletteName,
+              maxLength: 24,
+              "aria-label": "配色名称",
+              onChange: (event) =>
+                setNameDraft({ id: activePalette.id, name: event.target.value }),
+              onBlur: commitName,
+              onKeyDown: (event) => {
+                if (event.key === "Enter") event.currentTarget?.blur?.();
+              },
+            }),
+            activeBuiltin
+              ? null
+              : h(
+                  "button",
+                  {
+                    key: "remove",
+                    type: "button",
+                    className: "dts-colorReset",
+                    onClick: () => {
+                      setNameDraft(null);
+                      props.removePalette(activePalette.id);
+                    },
+                  },
+                  "删除",
+                ),
+          ],
+          activeBuiltin ? "内置配色，颜色与名字都能改" : null,
+        ),
+    activePalette === undefined
+      ? h(
+          "p",
+          { className: "dts-settings-note" },
+          "选一套配色或「＋ 新增」之后，下面可以改它的颜色。",
+        )
+      : h(ColorSection, {
+          palette: activePalette,
+          styleId: style,
+          mode,
+          showParticle: effectsKind !== null && !thin,
+          fxKind: effectsKind,
+          onMode: setMode,
+          onPick: (targetMode, slot, value) => props.setPaletteColor(activePalette.id, targetMode, slot, value),
+          onClear: (slot) => props.clearPaletteColor(activePalette.id, slot),
+          onReset: () => props.resetPalette(activePalette.id),
+        }),
     showStatus ? h("div", { className: "dts-settings-status" }, "未接管：" + status) : null,
   );
 }
@@ -1464,13 +2336,33 @@ function apply(ctx) {
 
   let enabled = storedEnabled();
   let style = storedStyle();
-  let colors = storedColors();
   let smooth = storedSmooth();
+  let effects = storedEffects();
+  let fx = storedFx();
+  let labels = storedLabels();
+  /* 配色：内置项先补齐；旧版按外观存的自定义色迁移成独立配色，只迁一次。 */
+  let palettes = storedPalettes();
+  let paletteId = storedPaletteId();
+  if (!hasStoredPalettes()) {
+    const legacy = migrateLegacyColors(storedLegacyColors(), style);
+    if (legacy.palettes.length > 0) {
+      palettes = withBuiltins(legacy.palettes);
+      paletteId = legacy.activeId;
+      rememberPalettes(palettes);
+      rememberPaletteId(paletteId);
+    }
+  }
+  if (paletteId !== AUTO_PALETTE && findPalette(palettes, paletteId) === undefined) paletteId = AUTO_PALETTE;
   let status = "尚未初始化";
   let services = null;
+  /* 注册座位用的 ctx：优先用声明了 remote.session 的那条注入 scope。 */
+  let seatCtx = ctx;
   let slotReady = false;
   let seatDispose = null;
   const listeners = new Set();
+  const notify = () => {
+    for (const fn of listeners) fn();
+  };
   const styleStore = {
     get: () => style,
     subscribe: (fn) => {
@@ -1482,37 +2374,105 @@ function apply(ctx) {
       if (next === style) return;
       style = next;
       rememberStyle(next);
-      for (const fn of listeners) fn();
+      notify();
     },
   };
-  const colorStore = {
-    get: () => colors,
+  /* 配色列表 / 当前配色：两个快照共用一个订阅集合。 */
+  const paletteListStore = {
+    get: () => palettes,
     subscribe: (fn) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    set: (styleId, slotId, value) => {
-      if (styleId !== "compact" && styleId !== "claude" && styleId !== "codex") return;
-      if (!COLOR_SLOTS.some((slot) => slot.id === slotId)) return;
-      if (typeof value !== "string" || !HEX_COLOR.test(value)) return;
-      const next = {
-        ...colors,
-        [styleId]: { ...(colors[styleId] ?? {}), [slotId]: value.toLowerCase() },
-      };
-      colors = next;
-      rememberColors(next);
-      for (const fn of listeners) fn();
-    },
-    reset: (styleId) => {
-      if (styleId !== "compact" && styleId !== "claude" && styleId !== "codex") return;
-      if (colors[styleId] === undefined) return;
-      const next = { ...colors };
-      delete next[styleId];
-      colors = next;
-      rememberColors(next);
-      for (const fn of listeners) fn();
+  };
+  const activePaletteStore = {
+    get: () => paletteId,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
     },
   };
+  const commitPalettes = (next) => {
+    palettes = next;
+    rememberPalettes(next);
+    notify();
+  };
+  const patchPalette = (id, updater) => {
+    if (findPalette(palettes, id) === undefined) return;
+    commitPalettes(palettes.map((palette) => (palette.id === id ? updater(palette) : palette)));
+  };
+  const selectPalette = (id) => {
+    const next = normalizePaletteId(id);
+    if (next === paletteId) return;
+    if (next !== AUTO_PALETTE && findPalette(palettes, next) === undefined) return;
+    paletteId = next;
+    rememberPaletteId(next);
+    notify();
+  };
+  const addPalette = () => {
+    let index = 1;
+    while (palettes.some((palette) => palette.name === `配色 ${index}`)) index += 1;
+    const palette = {
+      id: `custom-${Date.now().toString(36)}-${palettes.length}`,
+      name: `配色 ${index}`,
+      light: {},
+      dark: {},
+    };
+    paletteId = palette.id;
+    rememberPaletteId(paletteId);
+    commitPalettes([...palettes, palette]);
+  };
+  const renamePalette = (id, name) => {
+    const next = String(name ?? "").trim().slice(0, 24);
+    if (next === "") return;
+    patchPalette(id, (palette) => ({ ...palette, name: next }));
+  };
+  const removePalette = (id) => {
+    if (BUILTIN_PALETTE_IDS.includes(id)) return;
+    const next = palettes.filter((palette) => palette.id !== id);
+    if (next.length === palettes.length) return;
+    if (paletteId === id) {
+      paletteId = AUTO_PALETTE;
+      rememberPaletteId(paletteId);
+    }
+    commitPalettes(next);
+  };
+  const setPaletteColor = (id, mode, slotId, value) => {
+    if (mode !== "light" && mode !== "dark") return;
+    if (!COLOR_SLOTS.some((slot) => slot.id === slotId)) return;
+    if (typeof value !== "string" || !HEX_COLOR.test(value)) return;
+    patchPalette(id, (palette) => ({
+      ...palette,
+      [mode]: { ...palette[mode], [slotId]: value.toLowerCase() },
+    }));
+  };
+  const clearPaletteColor = (id, slotId) => {
+    const factory = BUILTIN_PALETTES.find((palette) => palette.id === id);
+    patchPalette(id, (palette) => {
+      const light = { ...palette.light };
+      const dark = { ...palette.dark };
+      if (factory !== undefined) {
+        /* 内置配色的 ↺ 是「回到出厂值」，不是「跟随主题」——出厂没有的槽才清掉。 */
+        if (typeof factory.light[slotId] === "string") light[slotId] = factory.light[slotId];
+        else delete light[slotId];
+        if (typeof factory.dark[slotId] === "string") dark[slotId] = factory.dark[slotId];
+        else delete dark[slotId];
+      } else {
+        delete light[slotId];
+        delete dark[slotId];
+      }
+      return { ...palette, light, dark };
+    });
+  };
+  const resetPalette = (id) => {
+    const factory = BUILTIN_PALETTES.find((palette) => palette.id === id);
+    patchPalette(id, (palette) => ({
+      ...palette,
+      light: factory !== undefined ? { ...factory.light } : {},
+      dark: factory !== undefined ? { ...factory.dark } : {},
+    }));
+  };
+  const darkStore = createDarkStore();
 
   const setStatus = (text) => {
     const next = String(text ?? "");
@@ -1535,6 +2495,51 @@ function apply(ctx) {
       for (const fn of listeners) fn();
     },
   };
+  /** 枚举型开关（特效 / 刻度）：读回来先归一，写出去同时落盘。 */
+  const makeChoiceStore = (read, commit, normalize) => ({
+    get: read,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (value) => {
+      const next = normalize(value);
+      if (next === read()) return;
+      commit(next);
+      for (const fn of listeners) fn();
+    },
+  });
+  const effectsStore = makeChoiceStore(
+    () => effects,
+    (next) => {
+      effects = next;
+      rememberEffects(next);
+    },
+    normalizeEffects,
+  );
+  /** 特效自己的设置：整体替换，写盘时一起归一。 */
+  const fxStore = {
+    get: () => fx,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (next) => {
+      const merged = normalizeFx(next);
+      if (JSON.stringify(merged) === JSON.stringify(fx)) return;
+      fx = merged;
+      rememberFx(merged);
+      for (const fn of listeners) fn();
+    },
+  };
+  const labelsStore = makeChoiceStore(
+    () => labels,
+    (next) => {
+      labels = next;
+      rememberLabels(next);
+    },
+    normalizeLabels,
+  );
   const release = () => {
     if (typeof seatDispose === "function") {
       const dispose = seatDispose;
@@ -1560,28 +2565,74 @@ function apply(ctx) {
     }
     if (seatDispose !== null) return;
     try {
-      seatDispose = registerThinkingSliderSeat(ctx, setStatus, services) ?? null;
+      seatDispose = registerThinkingSliderSeat(seatCtx, setStatus, services) ?? null;
     } catch (error) {
       setStatus("注册异常：" + (error?.message ?? String(error)));
       console.warn("[thinking-slider] registration failed:", error);
     }
   };
 
+  /**
+   * 座位用哪条 ctx 注册，决定了它能不能安全调用 `directoryFor`。
+   *
+   * 宿主 `ModelDirectoryResolver` 内部会摸 `ctx.remote.session`，而 Cordis 的
+   * reflect 代理按「调用方 ctx 的 inject 声明」放行——发射时抛的就是
+   * `cannot get property "remote.session" without inject`。所以下面先等
+   * `remote` / `remote.session` 就绪，再用**那条声明了它们的 scope** 去注册；
+   * 老宿主没有这两个服务时，看门狗退回原来只看两条服务的路径。
+   */
+  const startSeat = (scope) => {
+    if (services !== null) return;
+    if (injectWatchdog !== null) {
+      clearTimeout(injectWatchdog);
+      injectWatchdog = null;
+    }
+    seatCtx = scope;
+    services = {
+      models: scope.modelDirectories,
+      sessions: scope.sessions,
+      style: styleStore,
+      palette: activePaletteStore,
+      palettes: paletteListStore,
+      dark: darkStore,
+      smooth: smoothStore,
+      effects: effectsStore,
+      fx: fxStore,
+      labels: labelsStore,
+    };
+    setStatus("modelDirectories / sessions 已就绪");
+    sync();
+  };
+
+  let injectWatchdog = null;
+  ctx.effect(
+    () => () => {
+      if (injectWatchdog !== null) {
+        clearTimeout(injectWatchdog);
+        injectWatchdog = null;
+      }
+    },
+    "thinking-slider: inject watchdog",
+  );
+
   /* 服务在 apply 里先取好：槽位声明的 effect 里再开 ctx.inject 不可靠。 */
   try {
-    ctx.inject(["modelDirectories", "sessions"], (scope) => {
-      services = {
-        models: scope.modelDirectories,
-        sessions: scope.sessions,
-        style: styleStore,
-        colors: colorStore,
-        smooth: smoothStore,
-      };
-      setStatus("modelDirectories / sessions 已就绪");
-      sync();
-    });
+    ctx.inject(["modelDirectories", "sessions", "remote", "remote.session"], startSeat);
   } catch (error) {
     setStatus("订阅服务失败：" + (error?.message ?? String(error)));
+  }
+
+  /* 看门狗：`remote.session` 不可注入时第一条 inject 永远不会触发，按旧路径重来。 */
+  if (services === null && typeof setTimeout === "function") {
+    injectWatchdog = setTimeout(() => {
+      injectWatchdog = null;
+      if (services !== null) return;
+      try {
+        ctx.inject(["modelDirectories", "sessions"], startSeat);
+      } catch (error) {
+        setStatus("订阅服务失败：" + (error?.message ?? String(error)));
+      }
+    }, INJECT_FALLBACK_MS);
   }
 
   ctx.slots.inject("conversation.input.model", () => {
@@ -1605,11 +2656,25 @@ function apply(ctx) {
           getEnabled: () => enabled,
           getStyle: () => style,
           selectStyle: (id) => styleStore.set(id),
-          getColors: () => colors,
-          selectColor: (styleId, slotId, value) => colorStore.set(styleId, slotId, value),
-          resetColors: (styleId) => colorStore.reset(styleId),
+          getPalette: () => paletteId,
+          selectPalette: (id) => selectPalette(id),
+          getPalettes: () => palettes,
+          addPalette: () => addPalette(),
+          renamePalette: (id, name) => renamePalette(id, name),
+          removePalette: (id) => removePalette(id),
+          getDark: () => darkStore.get(),
+          setPaletteColor: (id, mode, slotId, value) => setPaletteColor(id, mode, slotId, value),
+          clearPaletteColor: (id, slotId) => clearPaletteColor(id, slotId),
+          resetPalette: (id) => resetPalette(id),
           getSmooth: () => smooth,
           selectSmooth: (value) => smoothStore.set(value),
+          getEffects: () => effects,
+          selectEffects: (id) => effectsStore.set(id),
+          getFx: () => fx,
+          selectFxMax: (on) => fxStore.set({ ...fx, maxOnly: on === true }),
+          selectFxSpeed: (kind, speed) => fxStore.set({ ...fx, speeds: { ...fx.speeds, [kind]: speed } }),
+          getLabels: () => labels,
+          selectLabels: (id) => labelsStore.set(id),
           selectEnabled: (id) => {
             enabled = id !== "off";
             rememberEnabled(enabled);
@@ -1629,6 +2694,7 @@ function apply(ctx) {
 
   ctx.effect(() => () => {
     release();
+    darkStore.dispose();
     listeners.clear();
   }, "thinking-slider: cleanup");
 }
@@ -1642,7 +2708,32 @@ module.exports = {
     SettingsPanel,
     storedEnabled,
     storedStyle,
-    storedColors,
     storedSmooth,
+    storedEffects,
+    storedLabels,
+    storedFx,
+    normalizeFx,
+    resolveEffects,
+    resolveLabels,
+    flowIsThin,
+    sliderPosition,
+    clampLabelShift,
+    labelShiftTransform,
+    sameShifts,
+    sanitizePalettes,
+    withBuiltins,
+    paletteColors,
+    paletteVars,
+    paletteSlotColor,
+    paletteHasSlot,
+    migrateLegacyColors,
+    storedPalettes,
+    storedPaletteId,
+    rememberPalettes,
+    BUILTIN_PALETTES,
+    AUTO_PALETTE,
+    COLOR_SLOTS,
+    MAIN_SLOTS,
+    DETAIL_SLOTS,
   },
 };

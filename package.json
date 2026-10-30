@@ -1,7 +1,7 @@
 {
   "name": "dsh-thinking-slider",
-  "version": "0.4.0",
-  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条（紧凑 / Claude / Codex 三种外观，可调配色；逐档 / 平滑两种拖动方式）。Composer model seat with a discrete reasoning-effort slider, step/smooth dragging, three skins and configurable colors.",
+  "version": "0.6.1",
+  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条（紧凑 / 块面 / 胶囊三种外观只管形状与材质；配色独立一层，内置五套——Claude 风 / Codex 风 / 苔原 / 海盐 / 暮玫，可新增、浅深各一套值；逐档 / 平滑拖动；四套特效——流光场 / 密度粒子 / 心跳 / 字符点阵，强度跟档位走：越高越亮、越鲜艳、越快；特效与底部刻度可按外观跟随或单独指定）。Composer model seat with a discrete reasoning-effort slider, three shape-only skins, independent editable palettes (five built-ins, light/dark sets), step/smooth dragging, four tier-driven effects (flow field, dust, heartbeat, glyph stream) and separate effect / label styles.",
   "type": "module",
   "main": "index.js",
   "exports": {

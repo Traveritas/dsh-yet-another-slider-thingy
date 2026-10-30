@@ -7,7 +7,9 @@
  */
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8').replace('__CSS__', '""');
+const source = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
+  .replace('__CSS__', '""')
+  .replace('__PIXEL_FLOW__', readFileSync(new URL('../src/pixel-flow.js', import.meta.url), 'utf8'));
 
 /* 组件里会摸 document / window；给垫片一套最小实现（不测布局）。 */
 const noop = () => {};
@@ -180,11 +182,43 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
       compact: { fill: '#ffffff' },
     }),
   );
-  const colors = pluginModule.exports.__test.storedColors();
-  if (colors.codex?.fill !== '#ff3366') throw new Error('storedColors should normalize hex');
-  if (colors.codex?.tick !== undefined) throw new Error('storedColors should drop invalid values');
-  if (colors.claude?.track !== '#112233') throw new Error('storedColors should keep valid slots');
-  if (colors.compact?.fill !== '#ffffff') throw new Error('storedColors should keep compact slots');
+  const { migrateLegacyColors, storedPalettes, storedPaletteId } = pluginModule.exports.__test;
+  const legacy = migrateLegacyColors(JSON.parse(store.get('dsh-thinking-slider:colors')), 'claude');
+  if (legacy.palettes.length !== 3) throw new Error('legacy colors should become one palette per skin');
+  const claudeLegacy = legacy.palettes.find((palette) => palette.id === 'legacy-claude');
+  if (claudeLegacy?.light.track !== '#112233') throw new Error('legacy claude track should be carried over');
+  const codexLegacy = legacy.palettes.find((palette) => palette.id === 'legacy-codex');
+  if (codexLegacy?.light.fill !== '#ff3366') throw new Error('legacy hex should be normalized');
+  if (codexLegacy?.light.tick !== undefined) throw new Error('legacy invalid values should be dropped');
+  if (legacy.activeId !== 'legacy-claude') throw new Error('migration should select the current skin palette');
+  if (legacy.palettes.every((palette) => palette.dark && Object.keys(palette.dark).length === 0) === false) {
+    throw new Error('legacy colors should land in the light set only');
+  }
+
+  /* 存储：内置项总会补齐，自定义项原样保留。 */
+  store.delete('dsh-thinking-slider:palettes');
+  const empty = storedPalettes();
+  const builtinIds = ['claude', 'codex', 'tundra', 'seasalt', 'duskrose'];
+  if (empty.length !== builtinIds.length || builtinIds.some((id, index) => empty[index].id !== id)) {
+    throw new Error('storedPalettes should seed the built-ins');
+  }
+  const tundra = empty.find((palette) => palette.id === 'tundra');
+  if (tundra?.light?.fill !== '#d3ddc7' || tundra?.dark?.accent !== '#a7c48f') {
+    throw new Error('tundra should ship with its light and dark colors');
+  }
+  store.set(
+    'dsh-thinking-slider:palettes',
+    JSON.stringify([{ id: 'mine', name: '我的', light: { fill: '#ABCDEF' }, dark: {} }]),
+  );
+  const mixed = storedPalettes();
+  if (mixed.length !== builtinIds.length + 1 || mixed[mixed.length - 1].id !== 'mine') {
+    throw new Error('custom palettes should follow the built-ins');
+  }
+  if (mixed[mixed.length - 1].light.fill !== '#abcdef') throw new Error('palette hex should be normalized');
+  store.set('dsh-thinking-slider:palette', 'mine');
+  if (storedPaletteId() !== 'mine') throw new Error('palette id should read back');
+  store.set('dsh-thinking-slider:palette', '');
+  if (storedPaletteId() !== 'auto') throw new Error('empty palette id should fall back to auto');
 }
 
 /* 平滑开关：只认 smooth，其余一律回落逐档；默认逐档。 */
@@ -200,6 +234,56 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   if (storedSmooth() !== true) throw new Error('smooth should read back as true');
   store.set('dsh-thinking-slider:smooth', 'garbage');
   if (storedSmooth() !== false) throw new Error('unknown smooth value should fall back to step');
+}
+
+/* 特效 / 刻度两轴：各自只认自己的枚举，其余回落 auto；默认值跟着外观走。 */
+{
+  const store = new Map();
+  globalThis.window.localStorage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, value),
+  };
+  const { storedEffects, storedLabels, resolveEffects, resolveLabels } = pluginModule.exports.__test;
+  if (storedEffects() !== 'auto') throw new Error('effects should default to auto');
+  if (storedLabels() !== 'auto') throw new Error('labels should default to auto');
+  store.set('dsh-thinking-slider:effects', 'on');
+  store.set('dsh-thinking-slider:labels', 'none');
+  /* 旧版的「开」= 胶囊那套流光 + 粒子，升级后落到密度粒子。 */
+  if (storedEffects() !== 'dust') throw new Error('legacy effects on should read back as dust');
+  if (storedLabels() !== 'none') throw new Error('labels none should read back');
+  store.set('dsh-thinking-slider:effects', 'glyph');
+  if (storedEffects() !== 'glyph') throw new Error('effects glyph should read back');
+  store.set('dsh-thinking-slider:effects', 'sometimes');
+  store.set('dsh-thinking-slider:labels', 'faster');
+  if (storedEffects() !== 'auto') throw new Error('unknown effects should fall back to auto');
+  if (storedLabels() !== 'auto') throw new Error('unknown labels should fall back to auto');
+
+  if (resolveEffects('auto', 'codex') !== 'dust') throw new Error('auto effects should follow codex as dust');
+  if (resolveEffects('auto', 'claude') !== null) throw new Error('auto effects should not borrow onto claude');
+  if (resolveEffects('auto', 'compact') !== null) throw new Error('auto effects should stay off for compact');
+  if (resolveEffects('flow', 'compact') !== 'flow') throw new Error('explicit flow should win for compact');
+  if (resolveEffects('pulse', 'claude') !== 'pulse') throw new Error('explicit pulse should win for claude');
+  if (resolveEffects('off', 'codex') !== null) throw new Error('explicit effects off wins for codex');
+  if (resolveLabels('auto', 'claude') !== 'axis') throw new Error('auto labels should follow claude');
+  if (resolveLabels('auto', 'codex') !== 'ticks') throw new Error('auto labels should follow codex');
+  if (resolveLabels('axis', 'compact') !== 'axis') throw new Error('explicit axis wins for compact');
+  if (resolveLabels('none', 'claude') !== 'none') throw new Error('explicit none wins for claude');
+}
+
+/* 刻度词的边界位移：居中优先，碰到带内边距外沿才往里让；比轨道宽就交给省略号。 */
+{
+  const { clampLabelShift, labelShiftTransform, sameShifts } = pluginModule.exports.__test;
+  if (clampLabelShift(290, 304, 40, 8) !== 0) throw new Error('short end label should stay centered');
+  if (clampLabelShift(14, 304, 40, 8) !== 0) throw new Error('short start label should stay centered');
+  if (clampLabelShift(290, 304, 56, 8) !== -6) throw new Error('wide end label should shift left by 6, got ' + clampLabelShift(290, 304, 56, 8));
+  if (clampLabelShift(14, 304, 56, 8) !== 6) throw new Error('wide start label should shift right by 6, got ' + clampLabelShift(14, 304, 56, 8));
+  if (clampLabelShift(100, 304, 400, 8) !== 0) throw new Error('label wider than the track should not shift');
+  if (labelShiftTransform(0) !== undefined) throw new Error('zero shift should keep the css transform');
+  if (labelShiftTransform(-6) !== 'translateX(calc(-50% - 6px))') throw new Error('negative shift transform = ' + labelShiftTransform(-6));
+  if (labelShiftTransform(4) !== 'translateX(calc(-50% + 4px))') throw new Error('positive shift transform = ' + labelShiftTransform(4));
+  if (sameShifts(null, [0, 0]) !== false) throw new Error('unmeasured shifts should count as changed');
+  if (sameShifts([0, 1], [0.01, 1]) !== true) throw new Error('sub-pixel changes should be ignored');
+  if (sameShifts([0, 1], [0, 2]) !== false) throw new Error('real changes should re-render');
 }
 
 const Seat = createThinkingSliderSeat(primitives);
@@ -342,7 +426,7 @@ react.reset();
 
 /* 2c. 外观：Claude 落在 Faster/Smarter 轴，Codex 保留刻度并在满档出粒子。 */
 {
-  const renderStyled = (styleId, effort, colors = {}) => {
+  const renderStyled = (styleId, effort, options = {}) => {
     react.reset();
     const store = storeOf({
       current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: effort },
@@ -356,8 +440,12 @@ react.reset();
       ...baseProps(store),
       getStyle: () => styleId,
       subscribeStyle: () => () => {},
-      getColors: () => colors,
-      subscribeColors: () => () => {},
+      getPalette: () => options.palette ?? 'auto',
+      subscribePalette: () => () => {},
+      getPalettes: () => options.palettes ?? [],
+      subscribePalettes: () => () => {},
+      getDark: () => options.dark === true,
+      subscribeDark: () => () => {},
     };
     let tree = react.render(Seat, props);
     findClass(tree, 'dts-trigger').props.onClick({});
@@ -381,6 +469,11 @@ react.reset();
   if (claudeScale.props.style['--dts-pad'] !== '14px') {
     throw new Error('claude pad should be 14px, got ' + claudeScale.props.style['--dts-pad']);
   }
+  /* 末档不再特殊对待：点只分「经过 / 未经过」，避免当前档不是最高时看起来全亮。 */
+  const specialDot = walk(claude).find(
+    (node) => typeof node.props?.className === 'string' && node.props.className.includes('dts-dot--last'),
+  );
+  if (specialDot !== undefined) throw new Error('dots should not special-case the last level');
 
   const codex = renderStyled('codex', 'max');
   if (findClass(codex, 'dts-ticks') === undefined) throw new Error('codex tick labels missing');
@@ -388,26 +481,33 @@ react.reset();
   if (findClass(codex, 'dts-burst') !== undefined) throw new Error('codex outside burst should be gone');
   const flow = findClass(codex, 'dts-flow');
   if (flow === undefined) throw new Error('codex max fill flow missing');
+  if (flow.props['data-dts-fx'] !== 'dust') throw new Error('codex auto should use the dust effect');
   const flowPaths = walk(flow).filter(
     (node) => typeof node.props?.className === 'string' && node.props.className.includes('dts-flowPath'),
   );
   if (flowPaths.length !== 8) throw new Error('codex max fill flow should have 8 particles');
-  if (flow.props.style.opacity !== 1) {
-    throw new Error('codex max flow should be fully visible, got ' + flow.props.style.opacity);
+  /* 强度是一根 0–1 的总线：4 档时最高档是 1，中间档是它在序列里的位置。 */
+  if (flow.props.style['--dts-power'] !== 1) {
+    throw new Error('codex max flow should be at full power, got ' + flow.props.style['--dts-power']);
   }
   const codexHigh = renderStyled('codex', 'high');
   const idleFlow = findClass(codexHigh, 'dts-flow');
   if (idleFlow === undefined) throw new Error('codex flow layer should stay mounted below max');
-  if (idleFlow.props.style.opacity !== 0) {
-    throw new Error('codex flow should be hidden below max, got ' + idleFlow.props.style.opacity);
+  if (Math.abs(Number(idleFlow.props.style['--dts-power']) - 2 / 3) > 1e-9) {
+    throw new Error('codex high should sit at two thirds power, got ' + idleFlow.props.style['--dts-power']);
   }
   if (findClass(codex, 'dts-scale').props.style['--dts-thumb-w'] !== '28px') {
     throw new Error('codex thumb should be 28px');
   }
 
-  const tinted = renderStyled('claude', 'high', {
-    claude: { track: '#112233', accent: '#445566' },
-  });
+  /* 配色是独立一层：选中的配色按当前深浅写进菜单的 inline 变量。 */
+  const customPalette = {
+    id: 'mine',
+    name: '我的',
+    light: { track: '#112233', accent: '#445566' },
+    dark: { accent: '#aabbcc' },
+  };
+  const tinted = renderStyled('claude', 'high', { palette: 'mine', palettes: [customPalette] });
   const tintedMenu = findNode(
     tinted,
     (node) =>
@@ -417,11 +517,39 @@ react.reset();
   );
   if (tintedMenu === undefined) throw new Error('tinted claude menu missing');
   if (tintedMenu.props.style['--dts-track-color'] !== '#112233') {
-    throw new Error('custom track color was not applied');
+    throw new Error('palette track color was not applied');
   }
   if (tintedMenu.props.style['--dts-accent-color'] !== '#445566') {
-    throw new Error('custom accent color was not applied');
+    throw new Error('palette accent color was not applied');
   }
+
+  /* 深色页：只改过的槽取深色值，没改的槽回落到浅色。 */
+  const tintedDark = renderStyled('claude', 'high', { palette: 'mine', palettes: [customPalette], dark: true });
+  const darkMenu = findNode(
+    tintedDark,
+    (node) =>
+      node.props?.['data-dts-style'] === 'claude' &&
+      typeof node.props.className === 'string' &&
+      node.props.className.includes('dts-menu'),
+  );
+  if (darkMenu.props.style['--dts-accent-color'] !== '#aabbcc') {
+    throw new Error('dark palette accent should win in dark mode');
+  }
+  if (darkMenu.props.style['--dts-track-color'] !== '#112233') {
+    throw new Error('palette slots missing a dark value should fall back to the light one');
+  }
+
+  /* 自动：不写任何颜色变量，全部交给外观 CSS。 */
+  const auto = renderStyled('claude', 'high');
+  const autoMenu = findNode(
+    auto,
+    (node) =>
+      node.props?.['data-dts-style'] === 'claude' &&
+      typeof node.props.className === 'string' &&
+      node.props.className.includes('dts-menu'),
+  );
+  const autoKeys = Object.keys(autoMenu.props.style ?? {}).filter((key) => key.startsWith('--dts-'));
+  if (autoKeys.length !== 0) throw new Error('auto palette should not override colors, got ' + autoKeys);
 
   const compact = renderStyled('compact', 'high');
   if (findClass(compact, 'dts-axis') !== undefined) throw new Error('compact should not render the claude axis');
@@ -432,7 +560,10 @@ react.reset();
     throw new Error('compact pad should stay 6px');
   }
 
-  const compactTinted = renderStyled('compact', 'high', { compact: { fill: '#00ff00' } });
+  const compactTinted = renderStyled('compact', 'high', {
+    palette: 'mine',
+    palettes: [{ id: 'mine', name: '我的', light: { fill: '#00ff00' }, dark: {} }],
+  });
   const compactMenu = findNode(
     compactTinted,
     (node) =>
@@ -442,7 +573,7 @@ react.reset();
   );
   if (compactMenu === undefined) throw new Error('tinted compact menu missing');
   if (compactMenu.props.style['--dts-fill-color'] !== '#00ff00') {
-    throw new Error('compact custom fill was not applied');
+    throw new Error('palette fill was not applied on compact');
   }
 }
 
@@ -487,6 +618,7 @@ react.reset();
   sliderOf().props.onPointerDown({ clientX: at(0.4), pointerId: 1, preventDefault() {} });
   tree = react.render(Seat, props);
   if (sliderOf().props['data-dts-dragging'] === undefined) throw new Error('drag state missing');
+  if (sliderOf().props['data-dts-follow'] === undefined) throw new Error('smooth drag should mark continuous follow');
   if (sliderOf().props['aria-valuenow'] !== 2) {
     throw new Error('smooth drag should keep the committed index 2, got ' + sliderOf().props['aria-valuenow']);
   }
@@ -515,6 +647,7 @@ react.reset();
   }
   tree = react.render(Seat, props);
   if (sliderOf().props['data-dts-dragging'] !== undefined) throw new Error('drag state should clear after release');
+  if (sliderOf().props['data-dts-follow'] !== undefined) throw new Error('follow state should clear after release');
 
   /* 逐档：同一位置只落在刻度上，松手提交该档。 */
   smoothMode = false;
@@ -523,6 +656,10 @@ react.reset();
   sliderOf().props.ref.current = track;
   sliderOf().props.onPointerDown({ clientX: at(0.4), pointerId: 2, preventDefault() {} });
   tree = react.render(Seat, props);
+  /* 逐档必须留着过渡（不设 follow），否则跨档又变回瞬移。 */
+  if (sliderOf().props['data-dts-follow'] !== undefined) {
+    throw new Error('step drag should keep the per-skin transition, not continuous follow');
+  }
   if (!near(ratioIn(findClass(tree, 'dts-thumb').props.style.left), 1 / 3)) {
     throw new Error('step mode should snap the thumb to a tick, got ' + findClass(tree, 'dts-thumb').props.style.left);
   }
@@ -538,7 +675,7 @@ react.reset();
 await flush();
 react.reset();
 
-/* 2e. Codex 特效强度：平滑拖动跟手连续升高；逐档只给 0 / 1，让 CSS 过渡淡入。 */
+/* 2e. 特效强度：逐档取档位在序列里的位置，平滑拖动直接跟指针（读数仍停在已提交档）。 */
 {
   selectCalls.length = 0;
   let smoothMode = true;
@@ -569,29 +706,27 @@ react.reset();
   };
   const sliderOf = () => findNode(tree, (node) => node.props?.role === 'slider');
   const flowOf = () => findClass(tree, 'dts-flow');
+  const power = () => Number(flowOf().props.style['--dts-power']);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
   /* codex：pad 14、轨道宽 100，0–1 的 ratio 换算成 clientX。 */
   const at = (ratio) => 14 + ratio * 72;
   sliderOf().props.ref.current = track;
 
-  if (flowOf().props.style.opacity !== 0) throw new Error('codex high should start with no flow');
+  if (flowOf().props['data-dts-fx'] !== 'dust') throw new Error('codex auto should render dust');
+  /* 已提交档是 high（4 档里的第 3 档）→ 2/3。 */
+  if (!near(power(), 2 / 3)) throw new Error('codex high should start at two thirds, got ' + power());
+
   sliderOf().props.onPointerMove({ clientX: at(0.7), pointerId: 3 });
   tree = react.render(Seat, props);
-  if (flowOf().props.style.opacity !== 0) throw new Error('idle pointermove should not show flow');
+  if (!near(power(), 2 / 3)) throw new Error('idle pointermove should not change power');
 
   sliderOf().props.onPointerDown({ clientX: at(0.7), pointerId: 3, preventDefault() {} });
   tree = react.render(Seat, props);
-  if (flowOf().props.style.opacity !== 0) {
-    throw new Error('flow should stay hidden below max while dragging, got ' + flowOf().props.style.opacity);
-  }
-
-  sliderOf().props.onPointerMove({ clientX: at(0.9), pointerId: 3 });
-  tree = react.render(Seat, props);
-  const partial = flowOf().props.style.opacity;
-  if (!(partial > 0 && partial < 1)) {
-    throw new Error('smooth drag into max should ramp flow, got ' + partial);
+  if (!near(power(), 0.7)) {
+    throw new Error('smooth drag should let power follow the pointer, got ' + power());
   }
   if (flowOf().props['data-dts-flow-follow'] === undefined) {
-    throw new Error('smooth drag should let flow follow the pointer without a transition');
+    throw new Error('smooth drag should drop the power transition');
   }
   if (sliderOf().props['aria-valuenow'] !== 2) {
     throw new Error('smooth drag should keep the committed level, got ' + sliderOf().props['aria-valuenow']);
@@ -599,74 +734,236 @@ react.reset();
 
   sliderOf().props.onPointerMove({ clientX: at(0.95), pointerId: 3 });
   tree = react.render(Seat, props);
-  if (!(flowOf().props.style.opacity > partial)) {
-    throw new Error('flow should keep growing toward the right end');
-  }
+  if (!(power() > 0.7)) throw new Error('power should keep growing toward the right end');
 
   sliderOf().props.onPointerMove({ clientX: at(1), pointerId: 3 });
   tree = react.render(Seat, props);
-  if (flowOf().props.style.opacity !== 1) {
-    throw new Error('flow should be full at the right end, got ' + flowOf().props.style.opacity);
-  }
+  if (power() !== 1) throw new Error('power should be full at the right end, got ' + power());
 
   sliderOf().props.onPointerUp({ clientX: at(1), pointerId: 3 });
   tree = react.render(Seat, props);
+  /* 松手后功率回到「已提交档」（还是 high），等宿主确认新档才升到 1；
+     测试里的 store 不会自己变，所以这里看到的仍是 2/3。 */
+  if (!near(power(), 2 / 3)) {
+    throw new Error('power should fall back to the committed level after release, got ' + power());
+  }
 
-  /* 逐档：没有连续位置，指针落到刻度就只给 0 / 1；过渡由 CSS 负责。 */
+  /* 逐档：功率跟着刻度走，指针落到哪一档就是哪一档的功率。 */
   smoothMode = false;
   tree = react.render(Seat, props);
   sliderOf().props.ref.current = track;
   sliderOf().props.onPointerDown({ clientX: at(0.95), pointerId: 4, preventDefault() {} });
   tree = react.render(Seat, props);
   if (flowOf().props['data-dts-flow-follow'] !== undefined) {
-    throw new Error('step drag should keep the flow opacity transition');
+    throw new Error('step drag should keep the power transition');
   }
-  if (flowOf().props.style.opacity !== 1) {
-    throw new Error('step mode at max should target full flow strength, got ' + flowOf().props.style.opacity);
-  }
+  if (power() !== 1) throw new Error('step mode at max should sit at full power, got ' + power());
 
-  /* 从满档往下拖：填充瞬间变窄，但特效层宽度先钉在满档宽度，粒子不会整体挪位。 */
   sliderOf().props.onPointerMove({ clientX: at(0.6), pointerId: 4 });
   tree = react.render(Seat, props);
-  if (flowOf().props.style.opacity !== 0) {
-    throw new Error('step drag below max should fade the flow out, got ' + flowOf().props.style.opacity);
+  if (!near(power(), 2 / 3)) {
+    throw new Error('step drag down one level should drop to two thirds, got ' + power());
   }
-  if (flowOf().props.style.width !== '86px') {
-    throw new Error('flow width should stay pinned at max while fading, got ' + flowOf().props.style.width);
+
+  sliderOf().props.onPointerMove({ clientX: at(0.2), pointerId: 4 });
+  tree = react.render(Seat, props);
+  if (!near(power(), 1 / 3)) {
+    throw new Error('step drag to the second level should sit at one third, got ' + power());
   }
-  if (flowOf().props.style.right !== 'auto') {
-    throw new Error('pinned flow should stop following the fill width');
+  sliderOf().props.onPointerUp({ clientX: at(0.2), pointerId: 4 });
+}
+
+/* 2e2. 只在最高档：静止时功率只给 0 / 1；平滑拖动进出最高档要跟手渐变，不能硬切。 */
+{
+  const fxMax = { maxOnly: true, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } };
+  const renderFx = (effort, smooth) => {
+    react.reset();
+    const store = storeOf({
+      current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: effort },
+      groups,
+      status: 'ready',
+      pending: null,
+      error: null,
+      failures: [],
+    });
+    const props = {
+      ...baseProps(store),
+      getStyle: () => 'codex',
+      subscribeStyle: () => () => {},
+      getSmooth: () => smooth,
+      subscribeSmooth: () => () => {},
+      getFx: () => fxMax,
+      subscribeFx: () => () => {},
+    };
+    let tree = react.render(Seat, props);
+    findClass(tree, 'dts-trigger').props.onClick({});
+    tree = react.render(Seat, props);
+    return { tree: () => tree, props, set: (next) => (tree = next) };
+  };
+  const powerOf = (tree) => Number(findClass(tree, 'dts-flow').props.style['--dts-power']);
+
+  const belowTop = renderFx('high', true);
+  if (powerOf(belowTop.tree()) !== 0) throw new Error('max-only should stay dark below the top tier');
+  if (findClass(belowTop.tree(), 'dts-flow').props.style['--dts-fx-floor'] !== 0) {
+    throw new Error('max-only should drop the always-on floor so 0 is really invisible');
   }
-  sliderOf().props.onPointerUp({ clientX: at(0.6), pointerId: 4 });
+  const atTop = renderFx('max', true);
+  if (powerOf(atTop.tree()) !== 1) throw new Error('max-only should light up at the top tier');
+
+  /* 平滑拖动进最高档：跨过吸附边界就跟手淡入，不等松手提交。 */
+  const dragging = renderFx('high', true);
+  const track = {
+    focus() {},
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    getBoundingClientRect: () => ({ left: 0, width: 100 }),
+  };
+  const sliderOf = () => findNode(dragging.tree(), (node) => node.props?.role === 'slider');
+  sliderOf().props.ref.current = track;
+  sliderOf().props.onPointerDown({ clientX: 14 + 0.95 * 72, pointerId: 9, preventDefault() {} });
+  dragging.set(react.render(Seat, dragging.props));
+  /* 4 档：边界在 (3-0.5)/3 = 0.833，0.95 处 smoothstep 得 0.784。 */
+  if (Math.abs(powerOf(dragging.tree()) - 0.784) > 0.01) {
+    throw new Error('max-only should ramp in inside the top tier, got ' + powerOf(dragging.tree()));
+  }
+  if (findClass(dragging.tree(), 'dts-flow').props['data-dts-flow-follow'] === undefined) {
+    throw new Error('max-only ramp should drop the power transition while following the pointer');
+  }
+  /* 边界左边仍是全暗：还没进最高档那格。 */
+  sliderOf().props.onPointerMove({ clientX: 14 + 0.5 * 72, pointerId: 9 });
+  dragging.set(react.render(Seat, dragging.props));
+  if (powerOf(dragging.tree()) !== 0) {
+    throw new Error('max-only should stay dark below the top zone, got ' + powerOf(dragging.tree()));
+  }
+  /* 再拖回右端、松手：提交走宿主，功率回到已提交档（还是 high，所以是 0）。 */
+  sliderOf().props.onPointerMove({ clientX: 14 + 0.98 * 72, pointerId: 9 });
+  dragging.set(react.render(Seat, dragging.props));
+  if (!(powerOf(dragging.tree()) > 0.9)) throw new Error('top zone should be nearly full at the right end');
+  sliderOf().props.onPointerUp({ clientX: 14 + 0.98 * 72, pointerId: 9 });
+  dragging.set(react.render(Seat, dragging.props));
+  if (powerOf(dragging.tree()) !== 0) {
+    throw new Error('after release max-only should fall back to the committed tier, got ' + powerOf(dragging.tree()));
+  }
 }
 
 await flush();
 react.reset();
 
-/* 2f. 设置面板：滑动一行显示当前方式，点「平滑」写回 store。 */
+/* 2f. 设置面板：滑动一行显示当前方式，点「平滑」写回 store；两轴各有自己的行。 */
 {
-  const { SettingsPanel } = pluginModule.exports.__test;
+  const { SettingsPanel, BUILTIN_PALETTES } = pluginModule.exports.__test;
   if (typeof SettingsPanel !== 'function') throw new Error('SettingsPanel export missing');
-  const flags = { smooth: false, picked: [] };
+  const flags = {
+    smooth: false,
+    effects: 'auto',
+    fx: { maxOnly: false, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } },
+    labels: 'auto',
+    palette: 'auto',
+    palettes: BUILTIN_PALETTES.map((entry) => ({ ...entry, light: { ...entry.light }, dark: { ...entry.dark } })),
+    dark: false,
+    picked: [],
+  };
   const makeProps = () => ({
     getEnabled: () => true,
     getStatus: () => '已接管（座位已渲染）',
     getStyle: () => 'compact',
-    getColors: () => ({}),
     getSmooth: () => flags.smooth,
+    getEffects: () => flags.effects,
+    getFx: () => flags.fx,
+    getLabels: () => flags.labels,
+    getPalette: () => flags.palette,
+    getPalettes: () => flags.palettes,
+    getDark: () => flags.dark,
     selectEnabled: () => {},
     selectStyle: () => {},
-    selectColor: () => {},
-    resetColors: () => {},
+    selectPalette: (id) => {
+      flags.palette = id;
+      flags.picked.push(id);
+    },
+    addPalette: () => {
+      const palette = { id: 'mine', name: '配色 1', light: {}, dark: {} };
+      flags.palettes = [...flags.palettes, palette];
+      flags.palette = palette.id;
+    },
+    renamePalette: (id, name) => {
+      flags.palettes = flags.palettes.map((entry) => (entry.id === id ? { ...entry, name } : entry));
+    },
+    removePalette: (id) => {
+      flags.palettes = flags.palettes.filter((entry) => entry.id !== id);
+      if (flags.palette === id) flags.palette = 'auto';
+    },
+    setPaletteColor: (id, mode, slot, value) => {
+      flags.palettes = flags.palettes.map((entry) =>
+        entry.id === id ? { ...entry, [mode]: { ...entry[mode], [slot]: value } } : entry,
+      );
+      flags.picked.push(`${mode}:${slot}:${value}`);
+    },
+    clearPaletteColor: (id, slot) => {
+      flags.palettes = flags.palettes.map((entry) => {
+        if (entry.id !== id) return entry;
+        const light = { ...entry.light };
+        const dark = { ...entry.dark };
+        delete light[slot];
+        delete dark[slot];
+        return { ...entry, light, dark };
+      });
+      flags.picked.push(`clear:${slot}`);
+    },
+    resetPalette: (id) => {
+      flags.palettes = flags.palettes.map((entry) => (entry.id === id ? { ...entry, light: {}, dark: {} } : entry));
+    },
     selectSmooth: (value) => {
       flags.smooth = value;
       flags.picked.push(value);
     },
+    selectEffects: (id) => {
+      flags.effects = id;
+      flags.picked.push(id);
+    },
+    selectFxMax: (on) => {
+      flags.fx = { ...flags.fx, maxOnly: on === true };
+      flags.picked.push('max:' + on);
+    },
+    selectFxSpeed: (kind, speed) => {
+      flags.fx = { ...flags.fx, speeds: { ...flags.fx.speeds, [kind]: speed } };
+      flags.picked.push(`speed:${kind}:${speed}`);
+    },
+    selectLabels: (id) => {
+      flags.labels = id;
+      flags.picked.push(id);
+    },
     subscribe: () => () => {},
   });
   const findChip = (tree, label) => walk(tree).find((node) => node.type === 'button' && textOf(node) === label);
+  const rowOf = (tree, label) =>
+    walk(tree).find(
+      (node) =>
+        String(node.props?.className || '').includes('dts-settings-row') &&
+        walk(node).some(
+          (child) =>
+            String(child.props?.className || '').includes('dts-settings-label') && textOf(child) === label,
+        ),
+    );
+  const chipIn = (tree, row, label) => findChip(rowOf(tree, row), label);
 
   let tree = react.render(SettingsPanel, makeProps());
+  /* 设置页先分三个类别；每行是「标签 / 控件 / 右侧说明」三列，说明不再跟芯片挤在一起。 */
+  const groupLabels = walk(tree)
+    .filter((node) => String(node.props?.className || '').includes('dts-group-label'))
+    .map(textOf);
+  for (const label of ['滑条', '特效', '配色']) {
+    if (!groupLabels.includes(label)) throw new Error('settings should group rows under ' + label);
+  }
+  for (const label of ['接管', '外观', '刻度', '滑动']) {
+    const row = rowOf(tree, label);
+    if (row === undefined) throw new Error('settings row missing ' + label);
+    if (!walk(row).some((node) => String(node.props?.className || '').includes('dts-controls'))) {
+      throw new Error('row should wrap its chips in dts-controls: ' + label);
+    }
+    if (!walk(row).some((node) => String(node.props?.className || '').includes('dts-settings-hint'))) {
+      throw new Error('row should keep its hint in a right-hand column: ' + label);
+    }
+  }
   const smoothChip = findChip(tree, '平滑');
   if (smoothChip === undefined) throw new Error('settings should render the smooth chip');
   if (smoothChip.props['aria-pressed'] !== false) throw new Error('smooth should start unpressed');
@@ -679,6 +976,236 @@ react.reset();
     throw new Error('smooth chip should reflect the stored value');
   }
   if (findChip(tree, '逐档') === undefined) throw new Error('settings should keep the step chip');
+
+  /* 特效：关 / 跟随外观 + 四个样式，默认跟随外观；点「关」写回 off。 */
+  const autoEffects = chipIn(tree, '特效', '跟随外观');
+  if (autoEffects === undefined) throw new Error('effects row should offer the auto chip');
+  if (autoEffects.props['aria-pressed'] !== true) throw new Error('effects should default to auto');
+  for (const label of ['关', '流光场', '密度粒子', '心跳', '字符点阵']) {
+    if (chipIn(tree, '特效', label) === undefined) throw new Error('effects row missing chip ' + label);
+  }
+  chipIn(tree, '特效', '心跳').props.onClick({});
+  if (flags.effects !== 'pulse') throw new Error('effects chip should write pulse, got ' + flags.effects);
+  chipIn(tree, '特效', '关').props.onClick({});
+  if (flags.effects !== 'off') throw new Error('effects chip should write off, got ' + flags.effects);
+
+  /* 刻度：四档，默认跟随外观；点「档位名」写回 ticks。 */
+  if (chipIn(tree, '刻度', '跟随外观') === undefined) throw new Error('labels row should offer the auto chip');
+  for (const label of ['档位名', '两端字', '不显示']) {
+    if (chipIn(tree, '刻度', label) === undefined) throw new Error('labels row missing chip ' + label);
+  }
+  chipIn(tree, '刻度', '档位名').props.onClick({});
+  if (flags.labels !== 'ticks') throw new Error('labels chip should write ticks, got ' + flags.labels);
+
+  /* 配色：默认「自动」，五套内置 + 新增按钮；选了配色才出现颜色区。 */
+  if (chipIn(tree, '配色', '自动') === undefined) throw new Error('palette row should offer the auto chip');
+  for (const name of ['Claude 风', 'Codex 风', '苔原', '海盐', '暮玫']) {
+    if (chipIn(tree, '配色', name) === undefined) throw new Error('palette row missing built-in ' + name);
+  }
+  if (chipIn(tree, '配色', '＋ 新增') === undefined) throw new Error('palette row should offer adding one');
+
+  /* 颜色行是函数组件，垫片不展开，这里自己摊平一层。 */
+  const flatten = (node) => {
+    if (Array.isArray(node)) return node.flatMap(flatten);
+    if (node === null || node === undefined || node === false) return [];
+    if (typeof node !== 'object') return [];
+    if (typeof node.type === 'function') return flatten(node.type(node.props));
+    return [node, ...flatten(node.children ?? [])];
+  };
+  const colorRow = (label) =>
+    flatten(tree).find(
+      (node) =>
+        String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes(label),
+    );
+  const particleRow = () => colorRow('粒子');
+
+  /* 自动配色下没有颜色区。 */
+  tree = react.render(SettingsPanel, makeProps());
+  if (colorRow('进度') !== undefined) throw new Error('auto palette should not render color rows');
+
+  /* 选 Claude 风：颜色区出现，深色页只改过的槽取深色值。 */
+  chipIn(tree, '配色', 'Claude 风').props.onClick({});
+  tree = react.render(SettingsPanel, makeProps());
+  const progressRow = colorRow('进度');
+  if (progressRow === undefined) throw new Error('selecting a palette should reveal the color rows');
+  if (!textOf(progressRow).includes('#E0DBD6')) {
+    throw new Error('light tab should show the light value, got ' + textOf(progressRow));
+  }
+  const modeChip = (label) =>
+    flatten(tree).find((node) => node.type === 'button' && textOf(node) === label);
+  modeChip('深色').props.onClick({});
+  tree = react.render(SettingsPanel, makeProps());
+  if (!textOf(colorRow('进度')).includes('#3A3330')) {
+    throw new Error('dark tab should show the dark value, got ' + textOf(colorRow('进度')));
+  }
+
+  /* 空槽显示「跟随主题」且没有 ↺；有值才有。 */
+  chipIn(tree, '配色', '＋ 新增').props.onClick({});
+  tree = react.render(SettingsPanel, makeProps());
+  const emptyRow = colorRow('进度');
+  if (emptyRow === undefined) throw new Error('new palette should still show color rows');
+  if (!textOf(emptyRow).includes('跟随主题')) throw new Error('empty slot should read 跟随主题');
+  if (flatten(emptyRow).some((node) => String(node.props?.className || '').includes('dts-colorClear'))) {
+    throw new Error('empty slot should not offer the reset button');
+  }
+  /* 点色块写值；写了之后出现 ↺，点了就清掉。 */
+  const emptyInput = flatten(emptyRow).find((node) => node.type === 'input');
+  emptyInput.props.onChange({ target: { value: '#123456' } });
+  if (!flags.picked.includes('dark:fill:#123456')) {
+    throw new Error('picking a color should write into the palette with the current mode, got ' + flags.picked.join());
+  }
+  tree = react.render(SettingsPanel, makeProps());
+  const filledRow = colorRow('进度');
+  if (!textOf(filledRow).includes('#123456')) throw new Error('picked color should show up');
+  flatten(filledRow)
+    .find((node) => String(node.props?.className || '').includes('dts-colorClear'))
+    .props.onClick();
+  if (!flags.picked.includes('clear:fill')) throw new Error('reset button should clear the slot');
+
+  /* 改名：输入时不动 store，失焦才提交。 */
+  const nameInput = flatten(tree).find((node) => String(node.props?.className || '').includes('dts-paletteName'));
+  if (nameInput === undefined) throw new Error('custom palette should offer a name input');
+  nameInput.props.onChange({ target: { value: '暮紫' } });
+  if (flags.palettes.some((entry) => entry.name === '暮紫')) throw new Error('typing should not commit the name');
+  tree = react.render(SettingsPanel, makeProps());
+  flatten(tree)
+    .find((node) => String(node.props?.className || '').includes('dts-paletteName'))
+    .props.onBlur();
+  if (!flags.palettes.some((entry) => entry.name === '暮紫')) throw new Error('blur should commit the name');
+
+  /* 自定义才能删；删掉后回到自动。 */
+  const deleteButton = flatten(tree).find((node) => node.type === 'button' && textOf(node) === '删除');
+  if (deleteButton === undefined) throw new Error('custom palette should offer delete');
+  deleteButton.props.onClick();
+  if (flags.palette !== 'auto') throw new Error('deleting the active palette should fall back to auto');
+
+  /* 粒子槽：特效关着时主色里没有它，开回来才出现（紧凑的细轨永远没有粒子）。 */
+  const wideProps = () => ({ ...makeProps(), getStyle: () => 'claude' });
+  flags.effects = 'off';
+  flags.palette = 'claude';
+  tree = react.render(SettingsPanel, wideProps());
+  if (particleRow() !== undefined) throw new Error('particle slot should hide when effects are off');
+  flags.effects = 'on';
+  tree = react.render(SettingsPanel, wideProps());
+  if (particleRow() === undefined) throw new Error('particle slot should appear when effects are on');
+  flags.palette = 'claude';
+  flags.effects = 'on';
+  tree = react.render(SettingsPanel, makeProps());
+  if (particleRow() !== undefined) throw new Error('compact should not offer a particle slot');
+
+  flags.effects = 'auto';
+  flags.labels = 'auto';
+  flags.palette = 'auto';
+
+  /* 特效色槽：只有当前特效那一槽出现，默认留空（跟随主题）。 */
+  flags.palette = 'claude';
+  flags.effects = 'flow';
+  flags.fx = { maxOnly: false, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } };
+  tree = react.render(SettingsPanel, makeProps());
+  const flowRow = colorRow('流光');
+  if (flowRow === undefined) throw new Error('active effect should expose its own color slot');
+  if (colorRow('字符') !== undefined) throw new Error('inactive effect slots should stay hidden');
+  if (!textOf(flowRow).includes('跟随主题')) throw new Error('effect color slot should start empty');
+
+  /* 特效设置：只在最高档 / 速度，都写回 store。 */
+  chipIn(tree, '强度', '只在最高档').props.onClick({});
+  if (flags.fx.maxOnly !== true) throw new Error('max-only chip should write true');
+  chipIn(tree, '速度', '快').props.onClick({});
+  if (flags.fx.speeds.flow !== 1.4) throw new Error('speed chip should write 1.4 for the active effect');
+  tree = react.render(SettingsPanel, makeProps());
+  if (chipIn(tree, '强度', '只在最高档').props['aria-pressed'] !== true) {
+    throw new Error('max-only chip should reflect the stored value');
+  }
+  flags.fx = { maxOnly: false, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } };
+}
+
+await flush();
+react.reset();
+
+/* 2g. 两轴落到座位上：特效 / 刻度可以借到别套外观；刻度词与圆点用同一个公式。 */
+{
+  const { sliderPosition } = pluginModule.exports.__test;
+  const renderWith = (styleId, effectsMode, labelsMode, effort = 'max') => {
+    react.reset();
+    const store = storeOf({
+      current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: effort },
+      groups,
+      status: 'ready',
+      pending: null,
+      error: null,
+      failures: [],
+    });
+    const props = {
+      ...baseProps(store),
+      getStyle: () => styleId,
+      subscribeStyle: () => () => {},
+      getEffects: () => effectsMode,
+      subscribeEffects: () => () => {},
+      getLabels: () => labelsMode,
+      subscribeLabels: () => () => {},
+    };
+    let tree = react.render(Seat, props);
+    findClass(tree, 'dts-trigger').props.onClick({});
+    return react.render(Seat, props);
+  };
+  const byClass = (tree, cls) => walk(tree).find((node) => node.props?.className === cls);
+  const tickButtons = (tree) =>
+    walk(tree).filter(
+      (node) => node.type === 'button' && String(node.props?.className || '').startsWith('dts-tick'),
+    );
+
+  /* 特效：auto 不借到 Claude / 紧凑；on 借过去，紧凑降级成细轨，没有粒子。 */
+  if (byClass(renderWith('claude', 'auto', 'auto'), 'dts-flow') !== undefined) {
+    throw new Error('auto effects should not put codex flow on claude');
+  }
+  const claudeFlow = byClass(renderWith('claude', 'on', 'auto'), 'dts-flow');
+  if (claudeFlow === undefined) throw new Error('effects on should put flow on claude');
+  if (claudeFlow.props['data-dts-flow'] !== undefined) throw new Error('claude flow should keep the particle layer');
+  if (walk(claudeFlow).filter((node) => String(node.props?.className || '').includes('dts-flowPath')).length !== 8) {
+    throw new Error('claude flow should carry the 8 particles');
+  }
+  if (byClass(renderWith('codex', 'off', 'auto'), 'dts-flow') !== undefined) {
+    throw new Error('effects off should remove the codex flow');
+  }
+  const compactFlow = byClass(renderWith('compact', 'on', 'auto'), 'dts-flow');
+  if (compactFlow === undefined) throw new Error('effects on should still mount the compact flow');
+  if (compactFlow.props['data-dts-flow'] !== 'thin') {
+    throw new Error('compact flow should degrade to the thin variant, got ' + compactFlow.props['data-dts-flow']);
+  }
+  if (byClass(renderWith('codex', 'auto', 'auto'), 'dts-flow') === undefined) {
+    throw new Error('auto effects should keep the codex flow');
+  }
+
+  /* 刻度：显式形态压过外观；两端字只有两个词，不显示时整行消失。 */
+  const claudeTicks = renderWith('claude', 'auto', 'ticks');
+  if (byClass(claudeTicks, 'dts-axis') !== undefined) throw new Error('explicit ticks should drop the claude axis');
+  if (tickButtons(claudeTicks).length !== efforts.length) throw new Error('claude ticks should have one label per level');
+  const codexAxis = renderWith('codex', 'auto', 'axis');
+  if (byClass(codexAxis, 'dts-ticks') !== undefined) throw new Error('explicit axis should drop the codex ticks');
+  const axis = byClass(codexAxis, 'dts-axis');
+  if (axis === undefined) throw new Error('explicit axis should render on codex');
+  const axisLabels = walk(axis).filter((node) => node.props?.className === 'dts-axisLabel');
+  if (axisLabels.length !== 2 || !textOf(axisLabels[0]).includes('Faster')) {
+    throw new Error('axis should render the two directional labels');
+  }
+  const none = renderWith('claude', 'auto', 'none');
+  if (byClass(none, 'dts-axis') !== undefined || byClass(none, 'dts-ticks') !== undefined) {
+    throw new Error('labels none should drop the whole label row');
+  }
+
+  /* 对齐：每个词的中心就是该档圆点的 x（同一个 sliderPosition）。 */
+  const ticks = tickButtons(claudeTicks);
+  ticks.forEach((node, index) => {
+    const expected = sliderPosition(index / Math.max(1, efforts.length - 1));
+    if (node.props.style?.left !== expected) {
+      throw new Error(`tick ${index} should sit on its dot: ${node.props.style?.left} !== ${expected}`);
+    }
+  });
+  if (axisLabels[0].props.style?.left !== sliderPosition(0)) throw new Error('axis left label should sit on the first dot');
+  if (axisLabels[1].props.style?.left !== sliderPosition(1)) throw new Error('axis right label should sit on the last dot');
+  if (byClass(claudeTicks, 'dts-ticks').props.style['--dts-levels'] !== efforts.length) {
+    throw new Error('ticks should hand the level count to CSS for the ellipsis clamp');
+  }
 }
 
 await flush();
@@ -720,6 +1247,130 @@ react.reset();
   if (rolledBack.props['aria-valuetext'] !== 'High') {
     throw new Error('slider should roll back to High, got ' + rolledBack.props['aria-valuetext']);
   }
+}
+
+await flush();
+react.reset();
+
+/* 2c. select 拒绝 / 同步抛：两条路都要落到 Toast，不能静默。 */
+for (const mode of ['reject', 'throw']) {
+  react.reset();
+  selectCalls.length = 0;
+  const store = storeOf({
+    current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: 'high' },
+    groups,
+    status: 'ready',
+    pending: null,
+    error: null,
+    failures: [],
+  });
+  const props = {
+    ...baseProps(store),
+    select: (selection) => {
+      selectCalls.push(selection);
+      if (mode === 'throw') throw new Error('sync boom');
+      return Promise.reject(new Error('async boom'));
+    },
+  };
+  let tree = react.render(Seat, props);
+  findClass(tree, 'dts-trigger').props.onClick({});
+  tree = react.render(Seat, props);
+  findNode(tree, (node) => node.props?.role === 'slider').props.onKeyDown({ key: 'End', nativeEvent: {}, preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  await flush();
+  const after = react.render(Seat, props);
+  if (findNode(after, (node) => node.type === primitives.Toast) === undefined) {
+    throw new Error(mode + ': a failed select should surface a toast');
+  }
+  const sliderAfter = findNode(after, (node) => node.props?.role === 'slider');
+  if (sliderAfter.props['aria-valuetext'] !== 'High') {
+    throw new Error(mode + ': slider should stay on High, got ' + sliderAfter.props['aria-valuetext']);
+  }
+}
+
+await flush();
+react.reset();
+
+/* 2d. PageUp / PageDown：和原生 range 一样按一档走。 */
+{
+  react.reset();
+  selectCalls.length = 0;
+  const store = storeOf({
+    current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: 'high' },
+    groups,
+    status: 'ready',
+    pending: null,
+    error: null,
+    failures: [],
+  });
+  const props = baseProps(store);
+  let tree = react.render(Seat, props);
+  findClass(tree, 'dts-trigger').props.onClick({});
+  tree = react.render(Seat, props);
+  findNode(tree, (node) => node.props?.role === 'slider').props.onKeyDown({ key: 'PageUp', nativeEvent: {}, preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  if (selectCalls.length !== 1 || selectCalls[0].reasoningEffort !== 'max') {
+    throw new Error('PageUp should commit Max, got ' + selectCalls.map((call) => call.reasoningEffort).join(','));
+  }
+  tree = react.render(Seat, props);
+  findNode(tree, (node) => node.props?.role === 'slider').props.onKeyDown({ key: 'PageDown', nativeEvent: {}, preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  if (selectCalls.length !== 2 || selectCalls[1].reasoningEffort !== 'low') {
+    throw new Error('PageDown should commit Low, got ' + selectCalls.map((call) => call.reasoningEffort).join(','));
+  }
+}
+
+await flush();
+react.reset();
+
+/* 2e. 指针被系统取消 / 丢失捕获：收掉拖动临时态，且不提交。 */
+{
+  react.reset();
+  selectCalls.length = 0;
+  const store = storeOf({
+    current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: 'high' },
+    groups,
+    status: 'ready',
+    pending: null,
+    error: null,
+    failures: [],
+  });
+  const props = baseProps(store);
+  let tree = react.render(Seat, props);
+  findClass(tree, 'dts-trigger').props.onClick({});
+  tree = react.render(Seat, props);
+  /* compact：pad 6、轨道宽 100（与上面 2a 的换算一致）。 */
+  const track = {
+    focus() {},
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    getBoundingClientRect: () => ({ left: 0, width: 100 }),
+  };
+  const at = (ratio) => 6 + ratio * 88;
+  const sliderOf = () => findNode(tree, (node) => node.props?.role === 'slider');
+  sliderOf().props.ref.current = track;
+  sliderOf().props.onPointerDown({ clientX: at(1), pointerId: 9, preventDefault() {} });
+  tree = react.render(Seat, props);
+  if (textOf(findClass(tree, 'dts-bandValue')) !== 'Max') {
+    throw new Error('drag preview should show Max before cancel, got ' + textOf(findClass(tree, 'dts-bandValue')));
+  }
+  sliderOf().props.onPointerCancel({ pointerId: 9 });
+  tree = react.render(Seat, props);
+  if (textOf(findClass(tree, 'dts-bandValue')) !== 'High') {
+    throw new Error('pointercancel should drop the drag preview, got ' + textOf(findClass(tree, 'dts-bandValue')));
+  }
+  if (selectCalls.length !== 0) throw new Error('pointercancel must not commit');
+
+  /* 丢失捕获走同一套清理。 */
+  sliderOf().props.ref.current = track;
+  sliderOf().props.onPointerDown({ clientX: at(0), pointerId: 10, preventDefault() {} });
+  tree = react.render(Seat, props);
+  sliderOf().props.onLostPointerCapture();
+  tree = react.render(Seat, props);
+  if (textOf(findClass(tree, 'dts-bandValue')) !== 'High') {
+    throw new Error('lostpointercapture should drop the drag preview');
+  }
+  if (selectCalls.length !== 0) throw new Error('lostpointercapture must not commit');
 }
 
 await flush();
@@ -809,4 +1460,76 @@ react.reset();
   }
 }
 
-console.log('selftest OK — open / model choose / effort commit / smooth drag freeze + snap / codex flow ramp + hold / clamp / failure rollback / no-effort / unavailable / styles');
+/* 6. apply：旧色迁移、配色存储与设置回调真的落到 localStorage。 */
+{
+  const store = new Map();
+  globalThis.window.localStorage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, value),
+  };
+  globalThis.document.createElement = () => ({ dataset: {}, textContent: '', remove: noop });
+  store.set('dsh-thinking-slider:style', 'claude');
+  store.set('dsh-thinking-slider:colors', JSON.stringify({ claude: { fill: '#112233' } }));
+
+  const { apply } = pluginModule.exports;
+  const registered = [];
+  const injectDeps = [];
+  const ctx = {
+    effect: (fn) => fn(),
+    slots: {
+      inject: (name, fn) => {
+        if (name === 'settings.section') registered.push(fn());
+      },
+      register: (registration, component) => {
+        registered.push({ registration, component });
+        return () => {};
+      },
+      entries: () => [],
+    },
+    inject: (deps, fn) => {
+      injectDeps.push(deps);
+      return fn({ modelDirectories: {}, sessions: {} });
+    },
+  };
+  apply(ctx);
+
+  /* 座位必须挂在声明了 remote.session 的那条注入 scope 上，否则冷启动会被
+     宿主的 `cannot get property "remote.session" without inject` 打回去。 */
+  if (!Array.isArray(injectDeps[0]) || !injectDeps[0].includes('remote.session')) {
+    throw new Error('seat should be injected with remote.session, got ' + JSON.stringify(injectDeps[0]));
+  }
+
+  const section = registered.find((entry) => entry?.registration?.id === 'thinking-slider');
+  if (section === undefined) throw new Error('apply should register the settings section');
+  const props = section.registration.inject();
+  const paletteIds = props.getPalettes().map((palette) => palette.id);
+  if (!paletteIds.includes('claude') || !paletteIds.includes('codex')) {
+    throw new Error('settings should see the built-in palettes, got ' + paletteIds.join());
+  }
+  if (props.getPalette() !== 'legacy-claude') {
+    throw new Error('legacy custom colors should be migrated and selected, got ' + props.getPalette());
+  }
+  const storedPalettes = JSON.parse(store.get('dsh-thinking-slider:palettes'));
+  if (!Array.isArray(storedPalettes) || !storedPalettes.some((palette) => palette.id === 'legacy-claude')) {
+    throw new Error('migration should persist the legacy palette');
+  }
+
+  props.addPalette();
+  const added = props.getPalettes().at(-1);
+  if (added === undefined || !added.id.startsWith('custom-')) throw new Error('addPalette should append a custom palette');
+  if (props.getPalette() !== added.id) throw new Error('addPalette should select the new palette');
+  props.renamePalette(added.id, '暮紫');
+  props.setPaletteColor(added.id, 'light', 'fill', '#00FF00');
+  props.setPaletteColor(added.id, 'dark', 'accent', '#aabbcc');
+  const saved = JSON.parse(store.get('dsh-thinking-slider:palettes')).find((palette) => palette.id === added.id);
+  if (saved.name !== '暮紫' || saved.light.fill !== '#00ff00' || saved.dark.accent !== '#aabbcc') {
+    throw new Error('palette edits should persist: ' + JSON.stringify(saved));
+  }
+  props.clearPaletteColor(added.id, 'fill');
+  const cleared = JSON.parse(store.get('dsh-thinking-slider:palettes')).find((palette) => palette.id === added.id);
+  if (cleared.light.fill !== undefined) throw new Error('clearing a slot should drop both modes');
+  props.removePalette(added.id);
+  if (props.getPalette() !== 'auto') throw new Error('removing the active palette should fall back to auto');
+}
+
+console.log('selftest OK — open / model choose / effort commit / smooth drag freeze + snap / effect power follows tier and pointer / clamp / failure rollback (ok:false / reject / sync throw) / PageUp·PageDown / pointercancel + lostcapture / no-effort / unavailable / styles');

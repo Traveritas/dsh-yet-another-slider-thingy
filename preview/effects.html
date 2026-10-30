@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>思考强度滑条 · 特效对照</title>
+    <!-- 直接吃插件真实的样式表，改 src/style.css 这里就跟着变 -->
+    <link rel="stylesheet" href="../src/style.css" />
+    <style>
+      /* 宿主令牌的替身：只补滑条用到的那十几枚，够看材质就行。 */
+      :root {
+        --dsw-alias-label-primary: #1f2328;
+        --dsw-alias-label-secondary: #4a5158;
+        --dsw-alias-label-tertiary: #6b7280;
+        --dsw-alias-label-caption: #6b7280;
+        --dsw-alias-label-dimmed: #9aa1a8;
+        --dsw-alias-state-business-primary: #2f6df6;
+        --dsw-alias-brand-primary: #2f6df6;
+        --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.05);
+        --dsw-alias-border-l1: rgba(0, 0, 0, 0.08);
+        --dsw-alias-border-l2: rgba(0, 0, 0, 0.14);
+        --dsw-alias-bg-base: #ffffff;
+        --dsw-alias-bg-layer-1: #ffffff;
+        --dsw-radius-sm: 4px;
+        --dsw-radius-md: 6px;
+        --dsw-radius-lg: 10px;
+        --dsw-elevation-prominent: 0 2px 6px rgba(0, 0, 0, 0.16);
+        --dsw-focus-ring-color: #2f6df6;
+        --ds-transition-duration: 180ms;
+        --ds-transition-duration-fast: 120ms;
+        --ds-ease-in-out: cubic-bezier(0.25, 0.1, 0.25, 1);
+        color-scheme: light;
+      }
+      html:has(body[data-ds-dark-theme]) {
+        --dsw-alias-label-primary: #e8e6e3;
+        --dsw-alias-label-secondary: #b9b6b1;
+        --dsw-alias-label-tertiary: #8f8c87;
+        --dsw-alias-label-caption: #8f8c87;
+        --dsw-alias-label-dimmed: #6c6a66;
+        --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.06);
+        --dsw-alias-border-l1: rgba(255, 255, 255, 0.1);
+        --dsw-alias-border-l2: rgba(255, 255, 255, 0.16);
+        --dsw-alias-bg-base: #14161a;
+        --dsw-alias-bg-layer-1: #1b1e23;
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #fbfaf8;
+        color: var(--dsw-alias-label-primary);
+        font: 13px/1.5 "Noto Sans SC", system-ui, sans-serif;
+      }
+      html:has(body[data-ds-dark-theme]) body {
+        background: #101215;
+      }
+
+      .lab-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 18px;
+        margin-bottom: 18px;
+      }
+      .lab-head h1 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      .lab-head label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+      }
+      .lab-chip {
+        padding: 3px 10px;
+        border: 0.5px solid var(--dsw-alias-border-l2);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--dsw-alias-label-secondary);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .lab-chip[aria-pressed="true"] {
+        border-color: var(--dsw-alias-state-business-primary);
+        color: var(--dsw-alias-label-primary);
+      }
+
+      section {
+        margin-bottom: 22px;
+      }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--dsw-alias-label-tertiary);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 58px repeat(4, 300px);
+        gap: 10px 16px;
+        align-items: center;
+      }
+      .tag {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        color: var(--dsw-alias-label-tertiary);
+      }
+      .colhead {
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        color: var(--dsw-alias-label-tertiary);
+      }
+      .dts-scale {
+        width: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="lab-head">
+      <h1>思考强度滑条 · 特效对照</h1>
+      <label
+        >底色
+        <button class="lab-chip" id="themeLight" aria-pressed="true">浅</button>
+        <button class="lab-chip" id="themeDark" aria-pressed="false">深</button>
+      </label>
+      <label>列 = 档位强度 0 · 0.33 · 0.66 · 1（同一根 --dts-power）</label>
+    </div>
+    <div id="lab"></div>
+
+    <!-- 和插件共用同一份像素场实现（file:// 下 classic script 直接可用） -->
+    <script src="../src/pixel-flow.js"></script>
+    <script>
+      const EFFECTS = [
+        { id: "flow", label: "流光场" },
+        { id: "dust", label: "密度粒子" },
+        { id: "pulse", label: "心跳" },
+        { id: "glyph", label: "字符点阵场" },
+      ];
+      const STYLES = [
+        { id: "compact", label: "紧凑", geo: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 } },
+        { id: "claude", label: "块面", geo: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 } },
+        { id: "codex", label: "胶囊", geo: { pad: 14, thumbW: 28, thumbH: 28, trackH: 28 } },
+      ];
+      const POWERS = [0, 0.33, 0.66, 1];
+      const LEVELS = ["关闭", "低", "高", "最高"];
+      const PARTICLES = [
+        { top: 4, duration: 3.2, delay: 0 },
+        { top: 9, duration: 3.8, delay: -0.7 },
+        { top: 14, duration: 2.9, delay: -1.4 },
+        { top: 19, duration: 3.5, delay: -2.1 },
+        { top: 6, duration: 4.1, delay: -0.3 },
+        { top: 11, duration: 3.0, delay: -1.8 },
+        { top: 16, duration: 3.6, delay: -1.1 },
+        { top: 21, duration: 3.3, delay: -2.5 },
+      ];
+      const GLYPHS = "01+#×/=:·".repeat(8);
+
+      const el = (tag, cls, style) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (style) for (const [k, v] of Object.entries(style)) node.style.setProperty(k, v);
+        return node;
+      };
+
+      /* 一根滑条：和座位里同构，power 只写在 --dts-power 上。 */
+      function slider(style, fx, power) {
+        const wrap = el("div", "dts-scale", {
+          "--dts-track-h": style.geo.trackH + "px",
+          "--dts-thumb-w": style.geo.thumbW + "px",
+          "--dts-thumb-h": style.geo.thumbH + "px",
+          "--dts-pad": style.geo.pad + "px",
+        });
+        wrap.dataset.dtsStyle = style.id;
+        const track = el("div", "dts-track");
+        track.setAttribute("role", "slider");
+        track.style.height = style.geo.trackH + "px";
+        const pad = style.geo.pad;
+        const ratio = 0.72;
+
+        const flow = el("span", "dts-flow", { "--dts-power": String(power) });
+        flow.dataset.dtsFx = fx;
+        if (style.geo.trackH < 24) flow.dataset.dtsFlow = "thin";
+
+        flow.append(el("canvas", "dts-pixelFlow"));
+        flow.append(el("span", "dts-flowSheen"));
+        flow.append(el("span", "dts-fxGlowSoft"));
+        flow.append(el("span", "dts-fxGlowStrong"));
+
+        const glyph = el("span", "dts-fxGlyph");
+        for (const mod of ["", "--b"]) {
+          const row = el("span", "dts-fxGlyphRow" + (mod ? " dts-fxGlyphRow" + mod : ""));
+          row.textContent = GLYPHS + GLYPHS;
+          glyph.append(row);
+        }
+        flow.append(glyph);
+
+        PARTICLES.forEach((p, i) => {
+          const path = el("span", "dts-flowPath", {
+            "--dts-flow-top": p.top + "px",
+            "--dts-flow-duration": p.duration + "s",
+            "--dts-flow-delay": p.delay + "s",
+            "--dts-fx-i": String(i / PARTICLES.length),
+          });
+          path.append(el("i"));
+          flow.append(path);
+        });
+
+        const fill = el("span", "dts-fill", {
+          width: `calc(${pad}px + ${ratio} * (100% - ${pad}px * 2))`,
+        });
+        fill.append(flow);
+        track.append(el("span", "dts-rail"), fill);
+
+        LEVELS.forEach((_, i) => {
+          const dot = el("span", "dts-dot" + (i <= 2 ? " dts-dot--on" : ""), {
+            left: `calc(${pad}px + ${i / 3} * (100% - ${pad}px * 2))`,
+          });
+          track.append(dot);
+        });
+        track.append(el("span", "dts-thumb", { left: `calc(${pad}px + ${ratio} * (100% - ${pad}px * 2))` }));
+
+        wrap.append(track);
+        return wrap;
+      }
+
+      function tuneSpeed(root, power) {
+        root.querySelectorAll(".dts-flow").forEach((layer) => {
+          for (const anim of layer.getAnimations({ subtree: true })) {
+            anim.playbackRate = 0.55 + 1.7 * power;
+          }
+        });
+      }
+
+      function build() {
+        const lab = document.getElementById("lab");
+        lab.textContent = "";
+        for (const fx of EFFECTS) {
+          const section = document.createElement("section");
+          section.dataset.fx = fx.id;
+          const h2 = document.createElement("h2");
+          h2.textContent = fx.label + " · " + fx.id;
+          section.append(h2);
+
+          const grid = el("div", "grid");
+          grid.append(el("div", "colhead"), ...POWERS.map((p) => Object.assign(el("div", "colhead"), { textContent: "power " + p })));
+
+          for (const style of STYLES) {
+            grid.append(Object.assign(el("div", "tag"), { textContent: style.label }));
+            for (const power of POWERS) {
+              const cell = el("div", "cell");
+              cell.append(slider(style, fx.id, power));
+              grid.append(cell);
+            }
+          }
+          section.append(grid);
+          lab.append(section);
+        }
+        document.querySelectorAll(".cell").forEach((cell) => {
+          const layer = cell.querySelector(".dts-flow");
+          tuneSpeed(cell, Number(layer.style.getPropertyValue("--dts-power")));
+        });
+        /* 流光场的画布：功率固定、速度固定，只为看不同档位下的样子。 */
+        document.querySelectorAll("canvas.dts-pixelFlow").forEach((canvas) => {
+          const layer = canvas.closest(".dts-flow");
+          const power = Number(layer.style.getPropertyValue("--dts-power")) || 0;
+          window.__fields = window.__fields || [];
+          window.__fields.push(
+            createPixelFlow(canvas, {
+              cell: 5,
+              color: () => readCssColor(canvas, ["--dts-flow-color", "--dts-particle-color", "--dts-accent-color"]),
+              power: () => power,
+              speed: () => 1,
+              reduced: () => false,
+            }),
+          );
+        });
+      }
+
+      document.getElementById("themeLight").onclick = () => setDark(false);
+      document.getElementById("themeDark").onclick = () => setDark(true);
+      function setDark(on) {
+        if (on) document.body.dataset.dsDarkTheme = "";
+        else delete document.body.dataset.dsDarkTheme;
+        document.getElementById("themeLight").setAttribute("aria-pressed", String(!on));
+        document.getElementById("themeDark").setAttribute("aria-pressed", String(on));
+      }
+
+      build();
+      window.__labReady = true;
+    </script>
+  </body>
+</html>

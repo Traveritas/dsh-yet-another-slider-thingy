@@ -209,7 +209,8 @@
 
 .dts-fill {
   background: var(--dts-fill-color, var(--dsw-alias-state-business-primary));
-  /* 松手吸附 / 点刻度时，填充跟着拇指一起滑过去；拖动中由 data-dts-dragging 关掉。 */
+  /* 逐档跨档 / 点刻度 / 松手吸附时，填充跟着拇指一起滑过去；
+     平滑拖动由 data-dts-follow 关掉。 */
   transition: width 0.12s ease;
 }
 
@@ -224,6 +225,10 @@
   background: var(--dts-tick-color, var(--dsw-alias-label-caption));
   opacity: 0.55;
   pointer-events: none;
+  /* 跨档时和拇指一起淡过去：档位已切换、拇指还在路上，硬切会先闪一下。 */
+  transition:
+    background-color 0.12s ease,
+    opacity 0.12s ease;
 }
 
 .dts-dot--on {
@@ -248,17 +253,15 @@
   transition: left 0.12s ease;
 }
 
-.dts-track[data-dts-dragging] .dts-thumb {
+/* 平滑拖动是逐帧跟手：哪怕 100ms 的过渡也会让拇指落在指针后面，所以关掉。
+   逐档拖动不关——拇指每跨一档正是靠这条过渡滑过去，而不是瞬移。 */
+.dts-track[data-dts-follow] .dts-thumb,
+.dts-track[data-dts-follow] .dts-fill {
   transition: none;
 }
 
-.dts-track[data-dts-dragging] .dts-fill {
-  transition: none;
-}
-
-.dts-track--busy .dts-thumb {
-  opacity: 0.6;
-}
+/* 提交等待时不要把拇指调透明：填充就在拇指下面，半透明会让色条从拇指里
+   透出来，看起来像「色条盖在滑块上」。进度只由光标与触发器上的状态点表达。 */
 
 .dts-track:focus-visible .dts-thumb {
   box-shadow:
@@ -276,7 +279,8 @@
   --dts-accent-color: #c6613f;
   --dts-tick-color: #b6b2af;
   --dts-text-color: var(--dsw-alias-label-caption);
-  --dts-particle-color: #ffffff;
+  /* 填充是浅暖灰，粒子跟强调色走才看得见；特效改到 Claude 上时才用得到。 */
+  --dts-particle-color: var(--dts-accent-color);
 }
 
 [data-dts-style="codex"] {
@@ -301,9 +305,9 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   --dts-accent-color: #ad7bf9;
 }
 
-/* ── Claude 材质：暖灰哑光轨 + 24×28 圆角方拇指 ──────────────────────
+/* ── 块面材质：暖灰哑光轨 + 24×28 圆角方拇指 ────────────────────────
    轨道是整块 28px 的圆角矩形，填充只是更深的暖灰；
-   末档刻度用陶土色，是这套皮肤最明显的 Claude 信号。 */
+   点用中性色（见下面的刻度规则），强调色只留给焦点环与流光。 */
 [data-dts-style="claude"] .dts-track {
   border-radius: 10px;
   background: var(--dts-track-color);
@@ -342,14 +346,16 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   transition: width 0.28s cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* 块面的点不用强调色：经过的档是「填充色 + 中性文字色」的混色，
+   不论下面压的是浅暖灰还是配色来的蓝底都读得出来；未经过的档用刻度色压淡。
+   旧版让末档常亮强调色，当前档是 High 时四个点全亮，读不出位置。 */
 [data-dts-style="claude"] .dts-dot {
   background: var(--dts-tick-color);
   opacity: 0.82;
 }
 
-[data-dts-style="claude"] .dts-dot--on,
-[data-dts-style="claude"] .dts-dot--last {
-  background: var(--dts-accent-color);
+[data-dts-style="claude"] .dts-dot--on {
+  background: color-mix(in srgb, var(--dts-fill-color) 25%, var(--dsw-alias-label-secondary));
   opacity: 1;
 }
 
@@ -435,19 +441,42 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
    粒子按 Codex 的 FastTrackParticles 做法：一条和填充等宽的“轨道”从右往左
    平移，粒子固定在轨道左端；整层裁在填充的圆角里，不越出滑条。 */
 .dts-flow {
+  /* 特效强度：0–1，来自已提交档位；平滑拖动时跟指针连续走。
+     一个变量管三件事——亮度（opacity）、鲜艳（filter）和速度（JS 乘
+     playbackRate），所以四个样式谁都不用自己再算一遍。 */
+  --dts-power: 0;
+  /* 最低档的底噪：默认留一点存在感（不然「特效开着」像没开）。
+     设置成「只在最高档」时座位把它写成 0——那时 0 就该是彻底看不见。 */
+  --dts-fx-floor: 0.18;
   position: absolute;
   inset: 0;
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  /* 逐档 / 点刻度 / 键盘切换时，0 ↔ 1 的强度用这个过渡淡入淡出。
-     平滑拖动由 React 每一帧直接给 opacity，下面那条规则会关掉过渡。 */
-  opacity: 0;
+  opacity: calc(var(--dts-fx-floor) + (1 - var(--dts-fx-floor)) * var(--dts-power));
   transition: opacity 0.24s cubic-bezier(0.23, 1, 0.32, 1);
+  /* 越往上越鲜艳：在配色给的颜色上再加一层饱和度，改配色不用重设。 */
+  filter: saturate(calc(0.78 + 0.5 * var(--dts-power)));
 }
 
 .dts-flow[data-dts-flow-follow] {
   transition: none;
+}
+
+/* 特效开到紧凑上：填充只有 2px，粒子（按 28px 轨道排的 top）根本放不下，
+   降级成只剩一道沿轨道扫过的流光。 */
+.dts-flow[data-dts-flow="thin"] .dts-flowPath {
+  display: none;
+}
+
+.dts-flow[data-dts-flow="thin"] .dts-flowSheen {
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dts-particle-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary))) 42%, transparent) 40%,
+    transparent 74%
+  );
+  background-size: 260% 100%;
 }
 
 .dts-flowSheen {
@@ -456,8 +485,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   background: linear-gradient(
     100deg,
     transparent 0%,
-    color-mix(in srgb, var(--dts-accent-color) 30%, transparent) 24%,
-    color-mix(in srgb, var(--dts-particle-color) 18%, transparent) 42%,
+    color-mix(in srgb, var(--dts-accent-color, var(--dsw-alias-state-business-primary)) 30%, transparent) 24%,
+    color-mix(in srgb, var(--dts-particle-color, var(--dsw-alias-state-business-primary)) 18%, transparent) 42%,
     transparent 66%
   );
   background-size: 220% 100%;
@@ -514,35 +543,225 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   }
 }
 
-/* ── 刻度 ───────────────────────────────────────────────────────────── */
-.dts-ticks {
+/* ── 特效：四个样式共用一层外壳，靠 data-dts-fx 分流 ───────────────────
+   flow 流光场 / dust 密度粒子 / pulse 心跳 / glyph 字符点阵场。
+   强度只有 --dts-power 一根总线：档位越高越亮、越鲜艳、越快。
+   速度不写死在 CSS 里——基准时长固定，JS 用 getAnimations().playbackRate
+   乘上功率，平滑拖动时连续跟手，也不会让正在跑的动画跳一格。
+   紧凑的 2px 细轨放不下粒子和字符，统一降级成一道流光（data-dts-flow="thin"）。 */
+
+/* 不属于当前样式的层一律不画。 */
+.dts-fxGlyph,
+.dts-fxGlowSoft,
+.dts-fxGlowStrong {
+  display: none;
+}
+
+/* 流光场：一块 5px 一格的画布（src/pixel-flow.js）。画布只有视口的 1/5 分之一个角，
+   像素放大回填充大小，就是主题那层流光缩小后的样子——所以这里只负责摆位置。 */
+.dts-pixelFlow {
+  display: none;
+}
+
+.dts-flow[data-dts-fx="flow"] .dts-pixelFlow {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+/* 密度粒子：还是原来那 8 颗横穿的小点，但档位决定「亮起来几颗」和「点多大」。
+   第 i 颗在 power 越过 i/8 之后才出现，所以低档是一两颗，满档是一整条流。 */
+.dts-flow:not([data-dts-fx="dust"]) .dts-flowPath {
+  display: none;
+}
+
+.dts-flow[data-dts-fx="dust"] .dts-flowPath i {
+  scale: clamp(0.01, calc(var(--dts-power) * 8.6 - var(--dts-fx-i, 0) * 8), 1.15);
+  box-shadow: 0 0 calc(3px + 8px * var(--dts-power))
+    color-mix(in srgb, var(--dts-dust-color, var(--dts-particle-color)) 52%, transparent);
+}
+
+/* 心跳：一层铺满的呼吸光 + 一道从拇指冲向左侧的脉冲波。
+   双峰的关键帧读起来像「咚·咚」，加上那道波就不只是「亮一下」了。 */
+.dts-flow[data-dts-fx="pulse"] .dts-fxGlowSoft,
+.dts-flow[data-dts-fx="pulse"] .dts-fxGlowStrong {
+  display: block;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.dts-flow[data-dts-fx="pulse"] .dts-fxGlowSoft {
+  inset-inline: 0;
+  animation: dts-fx-beat 2.1s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+}
+
+.dts-flow[data-dts-fx="pulse"] .dts-fxGlowStrong {
+  right: 0;
+  left: auto;
+  width: 58%;
+  animation: dts-fx-wave 2.1s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+.dts-fxGlowSoft {
+  background: linear-gradient(90deg, transparent 4%, color-mix(in srgb, var(--dts-pulse-color, var(--dts-particle-color)) 52%, transparent));
+}
+
+.dts-fxGlowStrong {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--dts-pulse-color, var(--dts-particle-color)) 95%, transparent) 62%, transparent);
+}
+
+@keyframes dts-fx-beat {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scaleX(0.97);
+  }
+  7% {
+    opacity: 1;
+    transform: scaleX(1.02);
+  }
+  16% {
+    opacity: 0.42;
+    transform: scaleX(0.99);
+  }
+  25% {
+    opacity: 0.9;
+    transform: scaleX(1.01);
+  }
+  42% {
+    opacity: 0.26;
+    transform: scaleX(0.97);
+  }
+}
+
+@keyframes dts-fx-wave {
+  0% {
+    opacity: 0;
+    transform: translateX(0) scaleX(0.6);
+  }
+  8% {
+    opacity: 0.95;
+    transform: translateX(-18%) scaleX(0.86);
+  }
+  38% {
+    opacity: 0.4;
+    transform: translateX(-110%) scaleX(1.15);
+  }
+  56%,
+  100% {
+    opacity: 0;
+    transform: translateX(-160%) scaleX(1.25);
+  }
+}
+
+/* 字符点阵场：两行等宽字符从右往左跑，慢的那行反着走、压到四成不抢戏。
+   每行里的字写两遍，translateX(-50%) 正好接回开头，循环看不出来。 */
+.dts-flow[data-dts-fx="glyph"] .dts-fxGlyph {
   display: flex;
-  padding: 0 var(--dts-pad, 6px);
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  position: absolute;
+  inset: 0;
+  padding-left: 4px;
+  overflow: hidden;
+  font: 600 9px/10px Consolas, "Cascadia Code", ui-monospace, monospace;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--dts-glyph-color, var(--dts-particle-color)) 82%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 92%, transparent);
+}
+
+.dts-fxGlyphRow {
+  display: block;
+  width: max-content;
+  animation: dts-fx-glyph 9s linear infinite;
+}
+
+.dts-fxGlyphRow--b {
+  opacity: 0.32;
+  animation-duration: 13.5s;
+  animation-direction: reverse;
+}
+
+@keyframes dts-fx-glyph {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 细轨降级：2px 的填充只留一道扫过的流光（画布与字符都放不下）。 */
+.dts-flow[data-dts-flow="thin"] .dts-pixelFlow,
+.dts-flow[data-dts-flow="thin"] .dts-fxGlyph,
+.dts-flow[data-dts-flow="thin"] .dts-fxGlowSoft,
+.dts-flow[data-dts-flow="thin"] .dts-fxGlowStrong {
+  display: none;
+}
+
+.dts-flow[data-dts-flow="thin"] .dts-flowSheen {
+  display: block;
+}
+
+/* 不画自带流光的样式（流光场 / 心跳 / 字符）把扫光层收起来；细轨那条规则
+   写在后面，优先级相同时由顺序决定，所以细轨仍然有扫光。 */
+.dts-flow[data-dts-fx="flow"] .dts-flowSheen,
+.dts-flow[data-dts-fx="pulse"] .dts-flowSheen,
+.dts-flow[data-dts-fx="glyph"] .dts-flowSheen {
+  display: none;
+}
+
+/* ── 刻度 ─────────────────────────────────────────────────────────────
+   两种形态共用一套几何：每个词的中心钉在同一档圆点的 x 上（和圆点、填充、
+   拇指同一个 sliderPosition 公式），两端和中间都不会再偏半格。
+   居中会让两端的词探出轨道，所以宽度先按「放得下」限死；还出界的由座位量完
+   实际宽度再往里推（inline transform），最多推到 .dts-band 的内边距外沿。 */
+.dts-ticks,
+.dts-axis {
+  position: relative;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--dts-text-color, var(--dsw-alias-label-caption));
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dts-tick,
+.dts-axisLabel {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 每档占一格：比格宽就省略号，免得压到相邻档的名字上。 */
+.dts-tick {
+  max-width: calc((100% - var(--dts-pad, 6px) * 2) / var(--dts-levels, 4));
+}
+
+/* 两端字在整个轨道里只放两个，上限给整条轨道，出界交给实测位移。 */
+.dts-axisLabel {
+  max-width: calc(100% - var(--dts-pad, 6px) * 2);
 }
 
 .dts-tick {
-  flex: 1;
-  min-width: 0;
   padding: 0;
   border: none;
   background: none;
-  color: var(--dts-text-color, var(--dsw-alias-label-caption));
+  color: inherit;
   font: inherit;
   font-size: 11px;
   line-height: 16px;
   text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
-}
-
-.dts-tick:first-child {
-  text-align: left;
-}
-
-.dts-tick:last-child {
-  text-align: right;
 }
 
 .dts-tick:hover,
@@ -552,12 +771,6 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 
 /* Claude 的两个端点标签：Faster / Smarter，和别套一样落在滑条下方。 */
 .dts-axis {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px var(--dts-pad, 6px) 0;
-  color: var(--dts-text-color, var(--dsw-alias-label-caption));
-  font-size: 11px;
-  line-height: 16px;
   pointer-events: none;
 }
 
@@ -587,6 +800,7 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
 @media (prefers-reduced-motion: reduce) {
   .dts-thumb,
   .dts-fill,
+  .dts-dot,
   .dts-flow {
     transition: none;
   }
@@ -599,6 +813,22 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   .dts-flowPath {
     animation: none;
     opacity: 0;
+  }
+
+  /* 四个特效都停在看得见的一帧上：不动的光比没有光更像「关掉了动效」。
+     流光场的画布由 JS 看 reduced 只画一帧，这里不用管。 */
+  .dts-fxGlowSoft,
+  .dts-fxGlowStrong,
+  .dts-fxGlyphRow {
+    animation: none;
+  }
+
+  .dts-fxGlowSoft {
+    opacity: 0.4;
+  }
+
+  .dts-fxGlowStrong {
+    opacity: 0.6;
   }
 }
 
@@ -769,42 +999,113 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
 
 /* ── 设置页「思考强度」 ───────────────────────────────────────────────── */
 .dts-settings {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
+  max-width: 880px;
   padding: 2px 0 6px;
 }
 
 .dts-settings-head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .dts-settings-title {
   font-size: 15px;
+  line-height: 1.35;
   color: var(--dsw-alias-label-primary);
 }
 
 .dts-settings-sub {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
 }
 
-.dts-settings-row {
+/* 类别：短词 + 向右收的细线。类别之间只靠这条线和 18px 留白隔开。 */
+.dts-group {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin: 18px 0 2px;
+}
+
+.dts-settings-head + .dts-group {
+  margin-top: 12px;
+}
+
+.dts-group-label {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  line-height: 16px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+.dts-group::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* 一行三列：标签 / 控件 / 右侧说明。说明固定在最右一列，不跟芯片换行。 */
+.dts-settings-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) minmax(0, 216px);
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: start;
+  padding: 3px 0;
 }
 
 .dts-settings-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 24px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.dts-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.dts-settings-hint {
+  justify-self: end;
+  max-width: 100%;
+  padding-top: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: right;
+  text-wrap: pretty;
+}
+
+.dts-settings-note {
+  margin: 3px 0 0 68px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dts-settings-status {
+  margin-top: 14px;
+  padding: 6px 9px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .dts-chip {
@@ -814,7 +1115,12 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
+  line-height: 16px;
   cursor: pointer;
+  transition:
+    background-color var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease),
+    border-color var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease),
+    color var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease);
 }
 
 .dts-chip:hover {
@@ -827,25 +1133,89 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   color: var(--dsw-alias-label-primary);
 }
 
-.dts-settings-hint,
-.dts-settings-status {
-  font-size: 11px;
+.dts-chip--add {
+  border-style: dashed;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* 窄容器：说明收到控件下面，仍靠右。 */
+@container (max-width: 640px) {
+  .dts-settings-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .dts-settings-hint {
+    grid-column: 2;
+    justify-self: end;
+    padding-top: 0;
+  }
+
+  .dts-settings-note {
+    margin-left: 60px;
+  }
+
+  .dts-colorLabel {
+    flex-basis: 48px;
+  }
+
+  .dts-colorsHint {
+    padding-left: 56px;
+  }
 }
 
 /* ── 设置页「颜色」 ─────────────────────────────────────────────────── */
 .dts-colors {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 2px;
+  gap: 2px;
+  padding-top: 4px;
 }
 
-.dts-colorsHead {
+/* 浅色 / 深色两页：配色按模式各记一份值。 */
+.dts-modeTabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 2px;
+  padding: 1px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dts-modeTab {
+  padding: 1px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.dts-modeTab--on {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* 配色名称：草稿在组件里，失焦 / 回车才提交。 */
+.dts-paletteName {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 200px;
+  padding: 3px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dts-paletteName:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
 }
 
 .dts-colorReset {
@@ -868,13 +1238,18 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
+  min-height: 26px;
+  max-width: 440px;
+  padding: 1px 0;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
 .dts-colorLabel {
-  flex: 0 0 40px;
+  flex: 0 0 56px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 .dts-colorInput {
@@ -907,6 +1282,40 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   font-family: var(--ds-font-family-code, Consolas, monospace);
   font-size: 10px;
   letter-spacing: 0.02em;
+}
+
+/* 空槽 = 跟随主题：色块退成近似色，右侧写「跟随主题」并出现 ↺ 恢复。 */
+.dts-colorRow--auto .dts-colorInput {
+  opacity: 0.45;
+}
+
+.dts-colorRow--auto .dts-colorValue {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+/* 深色页里沿用浅色值的槽：数值压淡，鼠标悬停有说明。 */
+.dts-colorValue--inherited {
+  opacity: 0.55;
+}
+
+.dts-colorClear {
+  flex: none;
+  margin-left: 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.dts-colorClear:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dts-colorsDetails {
@@ -950,7 +1359,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
 }
 
 .dts-colorsHint {
+  padding-left: 64px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
-  line-height: 15px;
+  line-height: 16px;
 }
