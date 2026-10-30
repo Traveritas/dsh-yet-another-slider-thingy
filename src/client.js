@@ -1,8 +1,8 @@
 /**
- * dsh-thinking-slider —— 浏览器端 bundle（v0.1.0）
+ * dsh-thinking-slider —— 浏览器端 bundle（v0.4.0）
  *
  * 把 DSH composer 的模型位（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
- * 模型行照旧下钻到分组列表，推理强度是带卡位的滑条。面板材质直接用宿主
+ * 模型行照旧下钻到分组列表，推理强度是带卡位的滑条（逐档 / 平滑两种拖动方式）。面板材质直接用宿主
  * MenuSurface，档位、分组、pending 与提交路径都来自宿主同一份模型目录。
  *
  * 依赖的宿主契约（DSH 0.2.1-rc.3，按 asar 里的真实源码核对）：
@@ -19,7 +19,101 @@ const h = React.createElement;
 
 const PLUGIN_ID = "dsh-thinking-slider";
 const ENABLED_KEY = PLUGIN_ID + ":enabled";
+const STYLE_KEY = PLUGIN_ID + ":style";
+const SMOOTH_KEY = PLUGIN_ID + ":smooth";
 const CSS = __CSS__;
+
+/** 滑条外观：紧凑是原来的细轨，Claude / Codex 共用一套新几何。 */
+const SLIDER_STYLES = [
+  { id: "compact", label: "紧凑" },
+  { id: "claude", label: "Claude" },
+  { id: "codex", label: "Codex" },
+];
+const DEFAULT_SLIDER_STYLE = "compact";
+/**
+ * 拖动方式：
+ *   step   逐档——指针每动一下就把位置取整到刻度，拇指从不落在两档之间。
+ *   smooth 平滑——拇指连续跟手，松手取整到最近档并提交（协议上仍是离散档位）。
+ */
+const SLIDER_DRAGS = [
+  { id: "step", label: "逐档" },
+  { id: "smooth", label: "平滑" },
+];
+const DEFAULT_SLIDER_DRAG = "step";
+/**
+ * 交互骨架：pad 是拇指圆心到轨道两端的距离（= 拇指半径），
+ * thumbW / thumbH 是拇指盒，trackH 是轨道的可点击高度。
+ * 指针命中和所有 inline left / fill width 都从这里取，CSS 只负责材质。
+ */
+const SLIDER_GEOMETRY = {
+  compact: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 },
+  claude: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 },
+  codex: { pad: 14, thumbW: 28, thumbH: 28, trackH: 28 },
+};
+const DEFAULT_STYLE_GETTER = () => DEFAULT_SLIDER_STYLE;
+const SMOOTH_OFF_GETTER = () => false;
+const NOOP_SUBSCRIBE = () => () => {};
+
+/** Codex 满档时在蓝色填充里横穿的小点；top / duration / delay 都是视觉参数。 */
+const FLOW_PARTICLES = [
+  { top: 4, duration: 3.2, delay: 0 },
+  { top: 9, duration: 3.8, delay: -0.7 },
+  { top: 14, duration: 2.9, delay: -1.4 },
+  { top: 19, duration: 3.5, delay: -2.1 },
+  { top: 6, duration: 4.1, delay: -0.3 },
+  { top: 11, duration: 3.0, delay: -1.8 },
+  { top: 16, duration: 3.6, delay: -1.1 },
+  { top: 21, duration: 3.3, delay: -2.5 },
+];
+
+const COLORS_KEY = PLUGIN_ID + ":colors";
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+/** main = 直接拉开档位识别度；其余收进「详细配置」。 */
+const COLOR_SLOTS = [
+  { id: "track", label: "轨道", main: true },
+  { id: "fill", label: "进度", main: true },
+  { id: "thumb", label: "拇指", main: true },
+  { id: "accent", label: "强调", main: true },
+  { id: "tick", label: "刻度", main: false },
+  { id: "text", label: "文字", main: false },
+  { id: "particle", label: "粒子", main: false },
+];
+const DEFAULT_COLORS = {
+  compact: {
+    track: "#e7e3de",
+    fill: "#6f5685",
+    thumb: "#ffffff",
+    accent: "#6f5685",
+    tick: "#8a8580",
+    text: "#77736f",
+    particle: "#ffffff",
+  },
+  claude: {
+    track: "#edeae8",
+    fill: "#e0dbd6",
+    thumb: "#ffffff",
+    accent: "#c6613f",
+    tick: "#b6b2af",
+    text: "#77736f",
+    particle: "#ffffff",
+  },
+  codex: {
+    track: "#e8e8e8",
+    fill: "#3a83f7",
+    thumb: "#ffffff",
+    accent: "#924ff7",
+    tick: "#6d6b67",
+    text: "#77736f",
+    particle: "#ffffff",
+  },
+};
+const EMPTY_COLORS = {};
+const EMPTY_COLORS_GETTER = () => EMPTY_COLORS;
+
+/** 拇指圆心 / 刻度 / 填充共用的位置公式，几何全从 CSS 变量来。 */
+function sliderPosition(ratio) {
+  return `calc(var(--dts-pad) + ${ratio} * (100% - var(--dts-pad) * 2))`;
+}
 
 /**
  * 入口：返回 disposer；拿不到服务或 primitives 就返回 null，座位留守原生。
@@ -93,6 +187,22 @@ function registerThinkingSliderSeat(ctx, report, services) {
               if (available) directory.load().catch(() => {});
             },
             select: (selection) => (available ? directory.select(selection) : Promise.resolve(undefined)),
+            getStyle: () =>
+              typeof services.style?.get === "function" ? services.style.get() : DEFAULT_SLIDER_STYLE,
+            subscribeStyle: (listener) =>
+              typeof services.style?.subscribe === "function"
+                ? services.style.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getColors: () => (typeof services.colors?.get === "function" ? services.colors.get() : EMPTY_COLORS),
+            subscribeColors: (listener) =>
+              typeof services.colors?.subscribe === "function"
+                ? services.colors.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getSmooth: () => (typeof services.smooth?.get === "function" ? services.smooth.get() : false),
+            subscribeSmooth: (listener) =>
+              typeof services.smooth?.subscribe === "function"
+                ? services.smooth.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
           };
         },
       },
@@ -186,16 +296,55 @@ function createThinkingSliderSeat(primitives, report) {
   const providerRank = (id) => (id === ACCOUNT_PROVIDER ? 0 : id === OFFICIAL_PROVIDER ? 1 : 2);
 
   function ThinkingSliderSeat(props) {
-    const { locked, available, directory, load, select } = props;
+    const {
+      locked,
+      available,
+      directory,
+      load,
+      select,
+      getStyle,
+      subscribeStyle,
+      getColors,
+      subscribeColors,
+      getSmooth,
+      subscribeSmooth,
+    } = props;
 
     const subscribe = React.useCallback((listener) => directory.subscribe(listener), [directory]);
     const state = React.useSyncExternalStore(subscribe, () => directory.getSnapshot());
+    const styleId = React.useSyncExternalStore(
+      typeof subscribeStyle === "function" ? subscribeStyle : NOOP_SUBSCRIBE,
+      typeof getStyle === "function" ? getStyle : DEFAULT_STYLE_GETTER,
+    );
+    const colors = React.useSyncExternalStore(
+      typeof subscribeColors === "function" ? subscribeColors : NOOP_SUBSCRIBE,
+      typeof getColors === "function" ? getColors : EMPTY_COLORS_GETTER,
+    );
+    const smooth = React.useSyncExternalStore(
+      typeof subscribeSmooth === "function" ? subscribeSmooth : NOOP_SUBSCRIBE,
+      typeof getSmooth === "function" ? getSmooth : SMOOTH_OFF_GETTER,
+    );
+    const geometry = SLIDER_GEOMETRY[styleId] ?? SLIDER_GEOMETRY[DEFAULT_SLIDER_STYLE];
+    const palette = colors?.[styleId] ?? EMPTY_COLORS;
+    const colorVars = {};
+    for (const slot of COLOR_SLOTS) {
+      const value = palette[slot.id];
+      if (typeof value === "string") colorVars[`--dts-${slot.id}-color`] = value;
+    }
+    const scaleVars = {
+      "--dts-track-h": `${geometry.trackH}px`,
+      "--dts-thumb-w": `${geometry.thumbW}px`,
+      "--dts-thumb-h": `${geometry.thumbH}px`,
+      "--dts-pad": `${geometry.pad}px`,
+    };
 
     const [open, setOpen] = React.useState(false);
     const [pane, setPane] = React.useState("root");
     const [query, setQuery] = React.useState("");
     const [highlighted, setHighlighted] = React.useState(null);
     const [dragIndex, setDragIndex] = React.useState(null);
+    /* 平滑模式下的连续位置（0–1）；逐档模式恒为 null。 */
+    const [dragRatio, setDragRatio] = React.useState(null);
     const [menuPos, setMenuPos] = React.useState(null);
     const [toast, setToast] = React.useState(null);
     const [selectionFocus, setSelectionFocus] = React.useState(false);
@@ -256,7 +405,26 @@ function createThinkingSliderSeat(primitives, report) {
     })();
     const settledIndex = effortIndex >= 0 ? effortIndex : efforts.length > 0 ? 0 : -1;
     const displayIndex = dragIndex !== null ? dragIndex : pendingEffortIndex >= 0 ? pendingEffortIndex : settledIndex;
-    const ratio = efforts.length <= 1 ? 0 : Math.max(0, Math.min(displayIndex, efforts.length - 1)) / (efforts.length - 1);
+    const indexRatio = (index) =>
+      efforts.length <= 1 ? 0 : Math.max(0, Math.min(index, efforts.length - 1)) / (efforts.length - 1);
+    /* 拇指 / 填充的位置：平滑拖动时用连续 ratio，其余按最近档取整。 */
+    const ratio = dragRatio !== null ? dragRatio : indexRatio(displayIndex);
+    const lastIndex = Math.max(0, efforts.length - 1);
+    /**
+     * Codex 满档特效强度（0–1）：
+     *   - 平滑拖动：从「最近档刚落到最高档」的分界线起，随指针靠近右端连续升高；
+     *   - 逐档 / 点刻度 / 键盘：只给 0 或 1，淡入淡出交给 CSS 的 opacity 过渡。
+     * 两种拖动方式都不会在跨进最高档时硬切。
+     */
+    const flowIntensity = (() => {
+      if (styleId !== "codex" || efforts.length <= 1) return 0;
+      if (dragRatio !== null) {
+        const zoneStart = (lastIndex - 0.5) / lastIndex;
+        const t = Math.min(1, Math.max(0, (dragRatio - zoneStart) / (1 - zoneStart)));
+        return t * t * (3 - 2 * t);
+      }
+      return displayIndex >= lastIndex ? 1 : 0;
+    })();
 
     const filteredGroups = React.useMemo(
       () =>
@@ -297,6 +465,7 @@ function createThinkingSliderSeat(primitives, report) {
       setQuery("");
       setHighlighted(null);
       setDragIndex(null);
+      setDragRatio(null);
       setSelectionFocus(false);
       setPane(currentChoice === undefined ? "model" : "root");
       setOpen(true);
@@ -311,6 +480,7 @@ function createThinkingSliderSeat(primitives, report) {
       setQuery("");
       setHighlighted(null);
       setDragIndex(null);
+      setDragRatio(null);
       if (keyTimer.current !== null) {
         clearTimeout(keyTimer.current);
         keyTimer.current = null;
@@ -429,6 +599,7 @@ function createThinkingSliderSeat(primitives, report) {
     };
 
     const commitIndex = (index) => {
+      setDragRatio(null);
       if (busy || current === null) {
         setDragIndex(null);
         return;
@@ -459,32 +630,39 @@ function createThinkingSliderSeat(primitives, report) {
     };
 
     /* ── 滑条指针 / 键盘 ─────────────────────────────────────────────── */
-    const indexAt = (clientX) => {
+    const ratioAt = (clientX) => {
       const track = trackRef.current;
-      if (track === null || efforts.length === 0) return 0;
+      if (track === null) return 0;
       const rect = track.getBoundingClientRect();
-      const pad = 6;
+      const pad = geometry.pad;
       const span = Math.max(1, rect.width - pad * 2);
-      const ratioAtPoint = Math.min(1, Math.max(0, (clientX - rect.left - pad) / span));
-      return Math.round(ratioAtPoint * (efforts.length - 1));
+      return Math.min(1, Math.max(0, (clientX - rect.left - pad) / span));
     };
+
+    const indexAt = (clientX) => Math.round(ratioAt(clientX) * Math.max(0, efforts.length - 1));
 
     const onTrackPointerDown = (event) => {
       if (busy || efforts.length === 0) return;
       event.preventDefault();
       trackRef.current?.focus();
       trackRef.current?.setPointerCapture?.(event.pointerId);
-      setDragIndex(indexAt(event.clientX));
+      const next = ratioAt(event.clientX);
+      setDragIndex(Math.round(next * (efforts.length - 1)));
+      /* 逐档模式不存连续位置：拇指直接落到刻度上。 */
+      setDragRatio(smooth ? next : null);
     };
 
     const onTrackPointerMove = (event) => {
-      if (dragIndex === null) return;
-      setDragIndex(indexAt(event.clientX));
+      if (dragIndex === null && dragRatio === null) return;
+      const next = ratioAt(event.clientX);
+      setDragIndex(Math.round(next * Math.max(0, efforts.length - 1)));
+      if (smooth) setDragRatio(next);
     };
 
     const onTrackPointerUp = (event) => {
-      if (dragIndex === null) return;
+      if (dragIndex === null && dragRatio === null) return;
       trackRef.current?.releasePointerCapture?.(event.pointerId);
+      /* 松手一律按最近档提交；平滑模式顺便把拇指交还给吸附动画。 */
       commitIndex(indexAt(event.clientX));
     };
 
@@ -499,6 +677,8 @@ function createThinkingSliderSeat(primitives, report) {
       else if (event.key === "End") next = last;
       if (next === null) return;
       event.preventDefault();
+      /* 键盘从「平滑拖动中的最近档」接管：先收掉连续位置，再走 200ms 防抖提交。 */
+      setDragRatio(null);
       scheduleCommit(next);
     };
 
@@ -571,13 +751,15 @@ function createThinkingSliderSeat(primitives, report) {
               ),
               h(
                 "div",
-                { className: "dts-scale" },
+                { className: "dts-scale", style: scaleVars },
                 h(
                   "div",
                   {
                     ref: trackRef,
                     className: "dts-track" + (busy ? " dts-track--busy" : ""),
                     role: "slider",
+                    "data-dts-dragging": dragIndex !== null ? "" : undefined,
+                    "data-dts-busy": busy ? "" : undefined,
                     tabIndex: locked ? -1 : 0,
                     "aria-label": TEXT.ariaSlider,
                     "aria-valuemin": 0,
@@ -588,49 +770,92 @@ function createThinkingSliderSeat(primitives, report) {
                     onPointerDown: onTrackPointerDown,
                     onPointerMove: onTrackPointerMove,
                     onPointerUp: onTrackPointerUp,
-                    onPointerCancel: () => setDragIndex(null),
+                    onPointerCancel: () => {
+                      setDragIndex(null);
+                      setDragRatio(null);
+                    },
                     onKeyDown: onTrackKeyDown,
                   },
                   h("span", { className: "dts-rail", "aria-hidden": "true" }),
-                  h("span", {
-                    className: "dts-fill",
-                    "aria-hidden": "true",
-                    style: { width: `calc(6px + ${ratio} * (100% - 12px))` },
-                  }),
+                  h(
+                    "span",
+                    {
+                      className: "dts-fill",
+                      "aria-hidden": "true",
+                      style: { width: sliderPosition(ratio) },
+                    },
+                    styleId === "codex" && efforts.length > 1
+                      ? h(
+                          "span",
+                          {
+                            className: "dts-flow",
+                            "aria-hidden": "true",
+                            "data-dts-flow-follow": dragRatio !== null ? "" : undefined,
+                            style: { opacity: flowIntensity },
+                          },
+                          h("span", { className: "dts-flowSheen" }),
+                          FLOW_PARTICLES.map((particle, index) =>
+                            h(
+                              "span",
+                              {
+                                key: index,
+                                className: "dts-flowPath",
+                                style: {
+                                  "--dts-flow-top": `${particle.top}px`,
+                                  "--dts-flow-duration": `${particle.duration}s`,
+                                  "--dts-flow-delay": `${particle.delay}s`,
+                                },
+                              },
+                              h("i", {}),
+                            ),
+                          ),
+                        )
+                      : null,
+                  ),
                   efforts.map((level, index) =>
                     h("span", {
                       key: level.id,
-                      className: "dts-dot" + (index <= displayIndex ? " dts-dot--on" : ""),
+                      className:
+                        "dts-dot" +
+                        (index <= displayIndex ? " dts-dot--on" : "") +
+                        (index === efforts.length - 1 ? " dts-dot--last" : ""),
                       "aria-hidden": "true",
-                      style: { left: `calc(6px + ${index / Math.max(1, efforts.length - 1)} * (100% - 12px))` },
+                      style: { left: sliderPosition(index / Math.max(1, efforts.length - 1)) },
                     }),
                   ),
                   h("span", {
                     className: "dts-thumb",
                     "aria-hidden": "true",
-                    style: { left: `calc(6px + ${ratio} * (100% - 12px))` },
+                    style: { left: sliderPosition(ratio) },
                   }),
                 ),
-                h(
-                  "div",
-                  { className: "dts-ticks" },
-                  efforts.map((level, index) =>
-                    h(
-                      "button",
-                      {
-                        key: level.id,
-                        type: "button",
-                        tabIndex: -1,
-                        "aria-label": level.name,
-                        className: "dts-tick" + (index === displayIndex ? " dts-tick--on" : ""),
-                        onClick: () => {
-                          if (!busy) commitIndex(index);
-                        },
-                      },
-                      level.name,
+                styleId === "claude"
+                  ? h(
+                      "div",
+                      { className: "dts-axis", "aria-hidden": "true" },
+                      h("span", null, "Faster"),
+                      h("span", null, "Smarter"),
+                    )
+                  : h(
+                      "div",
+                      { className: "dts-ticks" },
+                      efforts.map((level, index) =>
+                        h(
+                          "button",
+                          {
+                            key: level.id,
+                            type: "button",
+                            tabIndex: -1,
+                            "aria-label": level.name,
+                            className: "dts-tick" + (index === displayIndex ? " dts-tick--on" : ""),
+                            onClick: () => {
+                              if (!busy) commitIndex(index);
+                            },
+                          },
+                          level.name,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
               ),
             );
 
@@ -810,7 +1035,8 @@ function createThinkingSliderSeat(primitives, report) {
               ref: menuRef,
               id: `${id}-menu`,
               className: "dts-menu",
-              style: menuPos ?? MEASURE_STYLE,
+              "data-dts-style": styleId,
+              style: { ...(menuPos ?? MEASURE_STYLE), ...colorVars },
               role: pane === "model" ? "group" : "menu",
               "aria-label": TEXT.ariaMenu,
               "aria-busy": state.status === "loading" || busy,
@@ -823,7 +1049,7 @@ function createThinkingSliderSeat(primitives, report) {
 
     return h(
       "div",
-      { ref: rootRef, className: "dts-root", onKeyDown: onRootKeyDown },
+      { ref: rootRef, className: "dts-root", "data-dts-style": styleId, onKeyDown: onRootKeyDown },
       h(
         "button",
         {
@@ -874,6 +1100,80 @@ const MODES = [
   { id: "off", label: "关" },
 ];
 
+function normalizeStyle(value) {
+  return SLIDER_STYLES.some((entry) => entry.id === value) ? value : DEFAULT_SLIDER_STYLE;
+}
+
+function normalizeDrag(value) {
+  return value === "smooth" ? "smooth" : DEFAULT_SLIDER_DRAG;
+}
+
+function storedStyle() {
+  try {
+    return normalizeStyle(window.localStorage.getItem(STYLE_KEY));
+  } catch {
+    return DEFAULT_SLIDER_STYLE;
+  }
+}
+
+function rememberStyle(value) {
+  try {
+    window.localStorage.setItem(STYLE_KEY, value);
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+/** 平滑是手感开关：存 `smooth` / `step`，读出来归一成布尔。 */
+function storedSmooth() {
+  try {
+    return normalizeDrag(window.localStorage.getItem(SMOOTH_KEY)) === "smooth";
+  } catch {
+    return DEFAULT_SLIDER_DRAG === "smooth";
+  }
+}
+
+function rememberSmooth(value) {
+  try {
+    window.localStorage.setItem(SMOOTH_KEY, value ? "smooth" : "step");
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+function sanitizeColors(raw) {
+  const out = {};
+  if (raw === null || typeof raw !== "object") return out;
+  for (const styleId of ["compact", "claude", "codex"]) {
+    const source = raw[styleId];
+    if (source === null || typeof source !== "object") continue;
+    for (const slot of COLOR_SLOTS) {
+      const value = source[slot.id];
+      if (typeof value === "string" && HEX_COLOR.test(value)) {
+        out[styleId] ??= {};
+        out[styleId][slot.id] = value.toLowerCase();
+      }
+    }
+  }
+  return out;
+}
+
+function storedColors() {
+  try {
+    return sanitizeColors(JSON.parse(window.localStorage.getItem(COLORS_KEY) || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function rememberColors(value) {
+  try {
+    window.localStorage.setItem(COLORS_KEY, JSON.stringify(value));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
 function storedEnabled() {
   try {
     return window.localStorage.getItem(ENABLED_KEY) !== "off";
@@ -903,17 +1203,87 @@ function installStyles(ctx) {
   }, "thinking-slider: stylesheet");
 }
 
+function ColorRow(props) {
+  const value = props.value ?? props.fallback;
+  return h(
+    "label",
+    { className: "dts-colorRow" },
+    h("span", { className: "dts-colorLabel" }, props.label),
+    h("input", {
+      type: "color",
+      className: "dts-colorInput",
+      value,
+      "aria-label": `${props.label}颜色`,
+      onChange: (event) => props.onPick(event.target.value),
+    }),
+    h("span", { className: "dts-colorValue" }, value.toUpperCase()),
+  );
+}
+
+function ColorSection(props) {
+  const defaults = DEFAULT_COLORS[props.appearance] ?? {};
+  const main = COLOR_SLOTS.filter((slot) => slot.main);
+  const detail = COLOR_SLOTS.filter(
+    (slot) => !slot.main && (slot.id !== "particle" || props.appearance === "codex"),
+  );
+  const row = (slot) =>
+    h(ColorRow, {
+      key: slot.id,
+      label: slot.label,
+      value: props.palette[slot.id],
+      fallback: defaults[slot.id],
+      onPick: (value) => props.onPick(slot.id, value),
+    });
+  return h(
+    "div",
+    { className: "dts-colors" },
+    h(
+      "div",
+      { className: "dts-colorsHead" },
+      h("span", { className: "dts-settings-label" }, "颜色"),
+      h(
+        "button",
+        { type: "button", className: "dts-colorReset", onClick: () => props.onReset() },
+        "恢复默认",
+      ),
+    ),
+    main.map(row),
+    detail.length > 0
+      ? h(
+          "details",
+          { className: "dts-colorsDetails" },
+          h("summary", null, "详细配置"),
+          detail.map(row),
+        )
+      : null,
+    h("span", { className: "dts-colorsHint" }, props.hint),
+  );
+}
+
 function SettingsPanel(props) {
   const [state, setState] = React.useState(() => ({
     enabled: props.getEnabled(),
     status: props.getStatus(),
+    style: props.getStyle(),
+    colors: props.getColors(),
+    smooth: props.getSmooth(),
   }));
   React.useEffect(() => {
-    const read = () => setState({ enabled: props.getEnabled(), status: props.getStatus() });
+    const read = () =>
+      setState({
+        enabled: props.getEnabled(),
+        status: props.getStatus(),
+        style: props.getStyle(),
+        colors: props.getColors(),
+        smooth: props.getSmooth(),
+      });
     read();
     return props.subscribe(read);
   }, [props]);
   const enabled = state.enabled;
+  const style = normalizeStyle(state.style);
+  const smooth = Boolean(state.smooth);
+  const palette = state.colors?.[style] ?? {};
   const status = String(state.status ?? "");
   const showStatus = enabled && status !== "" && !status.startsWith("已接管");
   return h(
@@ -944,6 +1314,58 @@ function SettingsPanel(props) {
       ),
       h("span", { className: "dts-settings-hint" }, enabled ? "模型位由本插件接管" : "使用 DSH 原生模型菜单"),
     ),
+    h(
+      "div",
+      { className: "dts-settings-row" },
+      h("span", { className: "dts-settings-label" }, "外观"),
+      SLIDER_STYLES.map((entry) =>
+        h(
+          "button",
+          {
+            key: entry.id,
+            type: "button",
+            className: "dts-chip" + (style === entry.id ? " dts-chip--on" : ""),
+            "aria-pressed": style === entry.id,
+            onClick: () => props.selectStyle(entry.id),
+          },
+          entry.label,
+        ),
+      ),
+      h("span", { className: "dts-settings-hint" }, "只改滑条材质，不改档位与提交"),
+    ),
+    h(
+      "div",
+      { className: "dts-settings-row" },
+      h("span", { className: "dts-settings-label" }, "滑动"),
+      SLIDER_DRAGS.map((entry) =>
+        h(
+          "button",
+          {
+            key: entry.id,
+            type: "button",
+            className: "dts-chip" + (smooth === (entry.id === "smooth") ? " dts-chip--on" : ""),
+            "aria-pressed": smooth === (entry.id === "smooth"),
+            onClick: () => props.selectSmooth(entry.id === "smooth"),
+          },
+          entry.label,
+        ),
+      ),
+      h(
+        "span",
+        { className: "dts-settings-hint" },
+        smooth ? "拖动跟手，松手吸附最近档；提交仍是离散档位" : "指针始终吸在刻度上，拖到哪就是哪一档",
+      ),
+    ),
+    h(ColorSection, {
+      appearance: style,
+      palette,
+      hint:
+        style === "compact"
+          ? "紧凑默认跟随主题；改动某个槽后，该槽覆盖主题色。"
+          : "自定义颜色深浅共用；不改为各主题默认。",
+      onPick: (slot, value) => props.selectColor(style, slot, value),
+      onReset: () => props.resetColors(style),
+    }),
     showStatus ? h("div", { className: "dts-settings-status" }, "未接管：" + status) : null,
   );
 }
@@ -975,11 +1397,56 @@ function apply(ctx) {
 
 
   let enabled = storedEnabled();
+  let style = storedStyle();
+  let colors = storedColors();
+  let smooth = storedSmooth();
   let status = "尚未初始化";
   let services = null;
   let slotReady = false;
   let seatDispose = null;
   const listeners = new Set();
+  const styleStore = {
+    get: () => style,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (id) => {
+      const next = normalizeStyle(id);
+      if (next === style) return;
+      style = next;
+      rememberStyle(next);
+      for (const fn of listeners) fn();
+    },
+  };
+  const colorStore = {
+    get: () => colors,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (styleId, slotId, value) => {
+      if (styleId !== "compact" && styleId !== "claude" && styleId !== "codex") return;
+      if (!COLOR_SLOTS.some((slot) => slot.id === slotId)) return;
+      if (typeof value !== "string" || !HEX_COLOR.test(value)) return;
+      const next = {
+        ...colors,
+        [styleId]: { ...(colors[styleId] ?? {}), [slotId]: value.toLowerCase() },
+      };
+      colors = next;
+      rememberColors(next);
+      for (const fn of listeners) fn();
+    },
+    reset: (styleId) => {
+      if (styleId !== "compact" && styleId !== "claude" && styleId !== "codex") return;
+      if (colors[styleId] === undefined) return;
+      const next = { ...colors };
+      delete next[styleId];
+      colors = next;
+      rememberColors(next);
+      for (const fn of listeners) fn();
+    },
+  };
 
   const setStatus = (text) => {
     const next = String(text ?? "");
@@ -987,6 +1454,20 @@ function apply(ctx) {
     if (next === status) return;
     status = next;
     for (const fn of listeners) fn();
+  };
+  const smoothStore = {
+    get: () => smooth,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (value) => {
+      const next = Boolean(value);
+      if (next === smooth) return;
+      smooth = next;
+      rememberSmooth(next);
+      for (const fn of listeners) fn();
+    },
   };
   const release = () => {
     if (typeof seatDispose === "function") {
@@ -1023,7 +1504,13 @@ function apply(ctx) {
   /* 服务在 apply 里先取好：槽位声明的 effect 里再开 ctx.inject 不可靠。 */
   try {
     ctx.inject(["modelDirectories", "sessions"], (scope) => {
-      services = { models: scope.modelDirectories, sessions: scope.sessions };
+      services = {
+        models: scope.modelDirectories,
+        sessions: scope.sessions,
+        style: styleStore,
+        colors: colorStore,
+        smooth: smoothStore,
+      };
       setStatus("modelDirectories / sessions 已就绪");
       sync();
     });
@@ -1050,6 +1537,13 @@ function apply(ctx) {
         label: () => "思考强度",
         inject: () => ({
           getEnabled: () => enabled,
+          getStyle: () => style,
+          selectStyle: (id) => styleStore.set(id),
+          getColors: () => colors,
+          selectColor: (styleId, slotId, value) => colorStore.set(styleId, slotId, value),
+          resetColors: (styleId) => colorStore.reset(styleId),
+          getSmooth: () => smooth,
+          selectSmooth: (value) => smoothStore.set(value),
           selectEnabled: (id) => {
             enabled = id !== "off";
             rememberEnabled(enabled);
@@ -1076,5 +1570,13 @@ function apply(ctx) {
 module.exports = {
   inject,
   apply,
-  __test: { createThinkingSliderSeat, registerThinkingSliderSeat, storedEnabled },
+  __test: {
+    createThinkingSliderSeat,
+    registerThinkingSliderSeat,
+    SettingsPanel,
+    storedEnabled,
+    storedStyle,
+    storedColors,
+    storedSmooth,
+  },
 };

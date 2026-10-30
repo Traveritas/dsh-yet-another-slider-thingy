@@ -3,7 +3,8 @@
    照抄官方 ModelSelect：触发器 28px、13px 字；菜单 4px 内边距、34px 行；
    面板材质直接复用宿主 MenuSurface，这里只管排布与滑条本身。
 
-   颜色一律走宿主令牌（--dsw-*），所以任何主题、深浅模式都自动跟。
+   颜色：紧凑默认取宿主令牌（--dsw-*），Claude / Codex 有默认色板；
+   设置里可按槽覆盖（--dts-*-color），未改的槽仍按深浅取默认。
    开关关闭、插件卸载、或组件渲染抛错时整段失效，座位回落原生。 */
 
 
@@ -166,7 +167,7 @@
 .dts-bandValue {
   min-width: 0;
   overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dts-text-color, var(--dsw-alias-label-tertiary));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -178,7 +179,7 @@
 
 .dts-track {
   position: relative;
-  height: 20px;
+  height: var(--dts-track-h, 20px);
   border-radius: var(--dsw-radius-sm);
   outline: none;
   cursor: pointer;
@@ -193,7 +194,8 @@
 .dts-fill {
   position: absolute;
   top: 50%;
-  left: 6px;
+  left: var(--dts-pad, 6px);
+  z-index: 0;
   height: 2px;
   margin-top: -1px;
   border-radius: 1px;
@@ -201,44 +203,57 @@
 }
 
 .dts-rail {
-  right: 6px;
-  background: var(--dsw-alias-border-l1);
+  right: var(--dts-pad, 6px);
+  background: var(--dts-track-color, var(--dsw-alias-border-l1));
 }
 
 .dts-fill {
-  background: var(--dsw-alias-state-business-primary);
+  background: var(--dts-fill-color, var(--dsw-alias-state-business-primary));
+  /* 松手吸附 / 点刻度时，填充跟着拇指一起滑过去；拖动中由 data-dts-dragging 关掉。 */
+  transition: width 0.12s ease;
 }
 
 .dts-dot {
   position: absolute;
   top: 50%;
+  z-index: 1;
   width: 4px;
   height: 4px;
   margin: -2px 0 0 -2px;
   border-radius: 50%;
-  background: var(--dsw-alias-label-caption);
+  background: var(--dts-tick-color, var(--dsw-alias-label-caption));
   opacity: 0.55;
   pointer-events: none;
 }
 
 .dts-dot--on {
-  background: var(--dsw-alias-state-business-primary);
+  background: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
   opacity: 1;
 }
 
 .dts-thumb {
   position: absolute;
   top: 50%;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
+  z-index: 3;
+  box-sizing: border-box;
+  width: var(--dts-thumb-w, 12px);
+  height: var(--dts-thumb-h, 12px);
+  margin: calc(var(--dts-thumb-h, 12px) * -0.5) 0 0 calc(var(--dts-thumb-w, 12px) * -0.5);
   border-radius: 50%;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dts-thumb-color, var(--dsw-alias-bg-base));
   box-shadow:
-    0 0 0 2px var(--dsw-alias-state-business-primary),
+    0 0 0 2px var(--dts-accent-color, var(--dsw-alias-state-business-primary)),
     var(--dsw-elevation-prominent, 0 2px 6px rgba(0, 0, 0, 0.16));
   pointer-events: none;
   transition: left 0.12s ease;
+}
+
+.dts-track[data-dts-dragging] .dts-thumb {
+  transition: none;
+}
+
+.dts-track[data-dts-dragging] .dts-fill {
+  transition: none;
 }
 
 .dts-track--busy .dts-thumb {
@@ -247,13 +262,262 @@
 
 .dts-track:focus-visible .dts-thumb {
   box-shadow:
-    0 0 0 2px var(--dsw-alias-state-business-primary),
+    0 0 0 2px var(--dts-accent-color, var(--dsw-alias-state-business-primary)),
     0 0 0 4px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
 }
 
+/* ── 皮肤色板：主色可在设置里改；这里给默认值 ──────────────────────
+   变量挂在 [data-dts-style] 上，会被菜单 inline style 的自定义色覆盖；
+   所以「改过的槽」深浅共用，「没改的槽」仍按深浅各走默认。 */
+[data-dts-style="claude"] {
+  --dts-track-color: #edeae8;
+  --dts-fill-color: #e0dbd6;
+  --dts-thumb-color: #ffffff;
+  --dts-accent-color: #c6613f;
+  --dts-tick-color: #b6b2af;
+  --dts-text-color: var(--dsw-alias-label-caption);
+  --dts-particle-color: #ffffff;
+}
+
+[data-dts-style="codex"] {
+  --dts-track-color: color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  --dts-fill-color: #3a83f7;
+  --dts-thumb-color: #ffffff;
+  --dts-accent-color: #924ff7;
+  --dts-tick-color: color-mix(in srgb, var(--dsw-alias-label-primary) 50%, transparent);
+  --dts-text-color: var(--dsw-alias-label-caption);
+  --dts-particle-color: rgba(255, 255, 255, 0.72);
+}
+
+html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] {
+  --dts-track-color: #2a2623;
+  --dts-fill-color: #3a3330;
+  --dts-thumb-color: #f4efe8;
+  --dts-accent-color: #d97757;
+  --dts-tick-color: rgba(244, 239, 232, 0.34);
+}
+
+html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
+  --dts-accent-color: #ad7bf9;
+}
+
+/* ── Claude 材质：暖灰哑光轨 + 24×28 圆角方拇指 ──────────────────────
+   轨道是整块 28px 的圆角矩形，填充只是更深的暖灰；
+   末档刻度用陶土色，是这套皮肤最明显的 Claude 信号。 */
+[data-dts-style="claude"] .dts-track {
+  border-radius: 10px;
+  background: var(--dts-track-color);
+  box-shadow: inset 0 1px 1px rgba(70, 64, 59, 0.035);
+}
+
+[data-dts-style="claude"] .dts-track::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  border: 1px solid rgba(76, 70, 65, 0.1);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+[data-dts-style="claude"] .dts-rail {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
+  margin: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+[data-dts-style="claude"] .dts-fill {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
+  margin: 0;
+  border-radius: 9px 0 0 9px;
+  background: var(--dts-fill-color);
+  transition: width 0.28s cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-dts-style="claude"] .dts-dot {
+  background: var(--dts-tick-color);
+  opacity: 0.82;
+}
+
+[data-dts-style="claude"] .dts-dot--on,
+[data-dts-style="claude"] .dts-dot--last {
+  background: var(--dts-accent-color);
+  opacity: 1;
+}
+
+[data-dts-style="claude"] .dts-thumb {
+  border: 1px solid rgba(76, 70, 65, 0.2);
+  border-radius: 8px;
+  background: var(--dts-thumb-color);
+  box-shadow:
+    0 1px 2px rgba(62, 56, 50, 0.1),
+    0 4px 10px rgba(62, 56, 50, 0.06);
+  transition:
+    left 0.28s cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 0.18s ease;
+}
+
+[data-dts-style="claude"] .dts-track:focus-visible .dts-thumb {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--dts-accent-color) 28%, transparent),
+    0 1px 2px rgba(62, 56, 50, 0.08),
+    0 4px 10px rgba(62, 56, 50, 0.055);
+}
+
+/* ── Codex 材质：24px 胶囊轨 + 4px 点 + 28px 白圆拇指 ────────────────
+   轨道本身是 28px 命中区，可见胶囊只用上下各 2px 的内缩；
+   蓝色进度、选中点变白、拇指溢出胶囊——都按 Codex 的 power slider。 */
+[data-dts-style="codex"] .dts-track {
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-dts-style="codex"] .dts-rail {
+  top: 2px;
+  right: 0;
+  bottom: 2px;
+  left: 0;
+  height: auto;
+  margin: 0;
+  border-radius: 12px;
+  background: var(--dts-track-color);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+}
+
+[data-dts-style="codex"] .dts-fill {
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  height: auto;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 12px 0 0 12px;
+  background: var(--dts-fill-color);
+  transition: width 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+[data-dts-style="codex"] .dts-dot {
+  background: var(--dts-tick-color);
+  opacity: 1;
+}
+
+[data-dts-style="codex"] .dts-dot--on {
+  background: color-mix(in srgb, var(--dts-thumb-color) 55%, transparent);
+}
+
+[data-dts-style="codex"] .dts-thumb {
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-label-primary) 40%, transparent);
+  border-radius: 50%;
+  background: var(--dts-thumb-color);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.14),
+    0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  transition:
+    left 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 0.15s ease;
+}
+
+[data-dts-style="codex"] .dts-track:focus-visible .dts-thumb {
+  box-shadow:
+    0 0 0 2px var(--dts-accent-color),
+    0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Codex 满档：蓝色填充里的流动渐变 + 横穿粒子 ───────────────────
+   粒子按 Codex 的 FastTrackParticles 做法：一条和填充等宽的“轨道”从右往左
+   平移，粒子固定在轨道左端；整层裁在填充的圆角里，不越出滑条。 */
+.dts-flow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  /* 逐档 / 点刻度 / 键盘切换时，0 ↔ 1 的强度用这个过渡淡入淡出。
+     平滑拖动由 React 每一帧直接给 opacity，下面那条规则会关掉过渡。 */
+  opacity: 0;
+  transition: opacity 0.24s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.dts-flow[data-dts-flow-follow] {
+  transition: none;
+}
+
+.dts-flowSheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dts-accent-color) 30%, transparent) 24%,
+    color-mix(in srgb, var(--dts-particle-color) 18%, transparent) 42%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  animation: dts-flow-sheen 3.4s linear infinite;
+}
+
+@keyframes dts-flow-sheen {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+.dts-flowPath {
+  position: absolute;
+  inset-inline: 0;
+  top: var(--dts-flow-top, 8px);
+  height: 0;
+  opacity: 0;
+  transform: translateX(100%);
+  animation: dts-flow-travel var(--dts-flow-duration, 3.2s) linear infinite;
+  animation-delay: var(--dts-flow-delay, 0s);
+}
+
+.dts-flowPath i {
+  position: absolute;
+  top: -1.5px;
+  left: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--dts-particle-color);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--dts-particle-color) 34%, transparent);
+}
+
+@keyframes dts-flow-travel {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  8% {
+    opacity: 1;
+    transform: translateX(92%);
+  }
+  92% {
+    opacity: 1;
+    transform: translateX(8%);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+}
+
+/* ── 刻度 ───────────────────────────────────────────────────────────── */
 .dts-ticks {
   display: flex;
-  padding: 0 6px;
+  padding: 0 var(--dts-pad, 6px);
 }
 
 .dts-tick {
@@ -262,7 +526,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: var(--dsw-alias-label-caption);
+  color: var(--dts-text-color, var(--dsw-alias-label-caption));
   font: inherit;
   font-size: 11px;
   line-height: 16px;
@@ -283,7 +547,59 @@
 
 .dts-tick:hover,
 .dts-tick--on {
-  color: var(--dsw-alias-label-primary);
+  color: var(--dts-accent-color, var(--dsw-alias-label-primary));
+}
+
+/* Claude 的两个端点标签：Faster / Smarter，和别套一样落在滑条下方。 */
+.dts-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px var(--dts-pad, 6px) 0;
+  color: var(--dts-text-color, var(--dsw-alias-label-caption));
+  font-size: 11px;
+  line-height: 16px;
+  pointer-events: none;
+}
+
+/* ── 深色：Claude 的暖灰要压到暗面；Codex 全走宿主令牌，不用单独写 ── */
+html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track {
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+
+html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track::after {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-thumb {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.38);
+}
+
+html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-visible .dts-thumb {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--dts-accent-color) 30%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.38);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dts-thumb,
+  .dts-fill,
+  .dts-flow {
+    transition: none;
+  }
+
+  .dts-flowSheen {
+    animation: none;
+    opacity: 0.35;
+  }
+
+  .dts-flowPath {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* ── 模型列表 ───────────────────────────────────────────────────────── */
@@ -515,4 +831,126 @@
 .dts-settings-status {
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── 设置页「颜色」 ─────────────────────────────────────────────────── */
+.dts-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.dts-colorsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dts-colorReset {
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.dts-colorReset:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dts-colorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.dts-colorLabel {
+  flex: 0 0 40px;
+}
+
+.dts-colorInput {
+  flex: none;
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.dts-colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.dts-colorInput::-webkit-color-swatch {
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+}
+
+.dts-colorInput::-moz-color-swatch {
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+}
+
+.dts-colorValue {
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code, Consolas, monospace);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.dts-colorsDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.dts-colorsDetails > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  list-style: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.dts-colorsDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dts-colorsDetails > summary::before {
+  content: "›";
+  display: inline-block;
+  width: 10px;
+  color: var(--dsw-alias-label-caption);
+  transition: transform 0.12s ease;
+}
+
+.dts-colorsDetails[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.dts-colorsDetails[open] > summary {
+  margin-bottom: 2px;
+}
+
+.dts-colorsHint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 15px;
 }

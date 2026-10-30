@@ -1,7 +1,7 @@
 {
   "name": "dsh-thinking-slider",
-  "version": "0.1.1",
-  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条。Composer model seat with a discrete reasoning-effort slider.",
+  "version": "0.4.0",
+  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条（紧凑 / Claude / Codex 三种外观，可调配色；逐档 / 平滑两种拖动方式）。Composer model seat with a discrete reasoning-effort slider, step/smooth dragging, three skins and configurable colors.",
   "type": "module",
   "main": "index.js",
   "exports": {
