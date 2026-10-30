@@ -1,0 +1,9 @@
+# 统一用 LF 存，避免 Windows 上 checkout 后整份 CSS 变成 CRLF。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary

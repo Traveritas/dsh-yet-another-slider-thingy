@@ -1,0 +1,11 @@
+# 依赖与构建
+node_modules/
+
+# preview/shot.mjs 的默认输出
+preview/shots/
+shots/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>思考强度滑条 · GIF 舞台</title>
+    <!-- 直接吃插件真实的样式表：GIF 里的形状 / 材质 / 过渡都是插件本来的 -->
+    <link rel="stylesheet" href="../src/style.css" />
+    <style>
+      /* 宿主令牌的替身：只补滑条用到的那十几枚。 */
+      :root {
+        --dsw-alias-label-primary: #1f2328;
+        --dsw-alias-label-secondary: #4a5158;
+        --dsw-alias-label-tertiary: #6b7280;
+        --dsw-alias-label-caption: #6b7280;
+        --dsw-alias-label-dimmed: #9aa1a8;
+        --dsw-alias-state-business-primary: #2f6df6;
+        --dsw-alias-brand-primary: #2f6df6;
+        --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.05);
+        --dsw-alias-border-l1: rgba(0, 0, 0, 0.08);
+        --dsw-alias-border-l2: rgba(0, 0, 0, 0.14);
+        --dsw-alias-bg-base: #ffffff;
+        --dsw-alias-bg-layer-1: #ffffff;
+        --dsw-radius-sm: 4px;
+        --dsw-radius-md: 6px;
+        --dsw-radius-lg: 10px;
+        --dsw-elevation-prominent: 0 2px 6px rgba(0, 0, 0, 0.16);
+        --dsw-focus-ring-color: #2f6df6;
+        --ds-transition-duration: 180ms;
+        --ds-transition-duration-fast: 120ms;
+        --ds-ease-in-out: cubic-bezier(0.25, 0.1, 0.25, 1);
+        color-scheme: light;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 720px;
+        height: 400px;
+        overflow: hidden;
+        background: #f4f1ec;
+      }
+
+      body {
+        font-family: "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+        color: var(--dsw-alias-label-primary);
+      }
+
+      .stage {
+        position: relative;
+        width: 720px;
+        height: 400px;
+        overflow: hidden;
+        background:
+          radial-gradient(110% 90% at 50% -10%, #fffdf9 0%, #f5f1eb 52%, #ebe5dc 100%);
+      }
+
+      /* 演示页自己加的说明文字，不复用插件样式。 */
+      .demo-caption {
+        position: absolute;
+        top: 30px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: #7b7268;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+      }
+
+      .demo-caption strong {
+        display: block;
+        margin-bottom: 5px;
+        color: #3a332c;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      .demo-surface {
+        border-radius: 14px;
+        background: #fff;
+        box-shadow:
+          0 22px 48px rgba(52, 43, 34, 0.12),
+          0 2px 6px rgba(52, 43, 34, 0.06),
+          inset 0 0 0 1px rgba(52, 43, 34, 0.045);
+      }
+
+      /* 预览里的菜单不再 fixed：位置交给舞台。 */
+      .demo-surface .dts-menu {
+        position: static;
+        width: 320px;
+        max-width: none;
+        max-height: none;
+        box-shadow: none;
+      }
+
+      .demo-composer {
+        position: absolute;
+        left: 50%;
+        bottom: 22px;
+        width: 560px;
+        padding: 12px 14px 10px;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow:
+          0 18px 40px rgba(52, 43, 34, 0.1),
+          inset 0 0 0 1px rgba(52, 43, 34, 0.05);
+        transform: translateX(-50%);
+      }
+
+      .demo-prompt {
+        padding: 2px 2px 12px;
+        color: #8b8177;
+        font-size: 13px;
+      }
+
+      .demo-tools {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .demo-send {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 50%;
+        background: #2f6df6;
+        color: #fff;
+        font-size: 13px;
+      }
+
+      .demo-menu-slot {
+        position: absolute;
+        left: 50%;
+        bottom: 130px;
+        transform: translateX(-50%);
+      }
+
+      .demo-pair {
+        position: absolute;
+        top: 126px;
+        left: 50%;
+        display: flex;
+        gap: 20px;
+        transform: translateX(-50%);
+      }
+
+      .demo-pair > div {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .demo-pair .demo-label {
+        color: #6c6258;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+      }
+
+      .demo-center {
+        position: absolute;
+        top: 92px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      /* 特效这张放大一点：720 宽里 320 的菜单太小，粒子看不清。 */
+      .demo-center--zoom {
+        top: 86px;
+        transform: translateX(-50%) scale(1.35);
+        transform-origin: top center;
+      }
+
+      .demo-cursor {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 16px;
+        height: 20px;
+        filter: drop-shadow(0 1px 2px rgba(20, 25, 32, 0.28));
+        pointer-events: none;
+        will-change: transform;
+      }
+
+      /* 触发器里的箭头是宿主导出的图标；演示页给它一个尺寸。 */
+      .stage .dts-chevron {
+        flex: none;
+        width: 12px;
+        height: 12px;
+      }
+
+      /* 位置全部由 renderFrame 算好，别让 CSS 过渡抢时间轴。 */
+      .stage .dts-thumb,
+      .stage .dts-fill,
+      .stage .dts-dot {
+        transition: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage" id="stage">
+      <div class="demo-caption" id="caption"></div>
+    </div>
+    <script src="../src/pixel-flow.js"></script>
+    <script>
+      const EFFORTS = ["低", "中", "高", "最高"];
+      const LEVELS = EFFORTS.length - 1;
+      const STYLES = {
+        compact: { pad: 6, trackH: 20, thumbW: 12, thumbH: 12, labels: "ticks", dur: 120, ease: [0.25, 0.1, 0.25, 1] },
+        claude: { pad: 14, trackH: 28, thumbW: 24, thumbH: 28, labels: "axis", dur: 280, ease: [0.2, 0, 0, 1] },
+        codex: { pad: 14, trackH: 28, thumbW: 28, thumbH: 28, labels: "ticks", dur: 200, ease: [0.23, 1, 0.32, 1] },
+      };
+      const PARTICLES = [
+        { top: 4, duration: 3.2, delay: 0 },
+        { top: 9, duration: 3.8, delay: -0.7 },
+        { top: 14, duration: 2.9, delay: -1.4 },
+        { top: 19, duration: 3.5, delay: -2.1 },
+        { top: 6, duration: 4.1, delay: -0.3 },
+        { top: 11, duration: 3.0, delay: -1.8 },
+        { top: 16, duration: 3.6, delay: -1.1 },
+        { top: 21, duration: 3.3, delay: -2.5 },
+      ];
+      const GLYPHS = "01+#×/=:·".repeat(8);
+
+      /* 可暂停的 rAF：像素流光场原本自己按帧走，这里改成由 renderFrame 喂时间。 */
+      const rafQueue = new Map();
+      let rafSeq = 0;
+      window.requestAnimationFrame = (cb) => {
+        const id = ++rafSeq;
+        rafQueue.set(id, cb);
+        return id;
+      };
+      window.cancelAnimationFrame = (id) => rafQueue.delete(id);
+      window.__stepFlow = (now) => {
+        const jobs = [...rafQueue.values()];
+        rafQueue.clear();
+        for (const cb of jobs) cb(now);
+      };
+
+      const el = (tag, cls, style) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (style) for (const [k, v] of Object.entries(style)) node.style.setProperty(k, v);
+        return node;
+      };
+
+      const svgPath = (d, cls) => {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 16 16");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("aria-hidden", "true");
+        if (cls) svg.setAttribute("class", cls);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", "currentColor");
+        path.setAttribute("stroke-width", "1.4");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("stroke-linejoin", "round");
+        svg.append(path);
+        return svg;
+      };
+
+      /* 和座位同一个公式：pad + ratio * (100% - 2pad)。 */
+      const position = (ratio) => `calc(var(--dts-pad) + ${ratio} * (100% - var(--dts-pad) * 2))`;
+
+      function buildFlow() {
+        const flow = el("span", "dts-flow");
+        flow.dataset.dtsFx = "flow";
+        const canvas = el("canvas", "dts-pixelFlow");
+        const sheen = el("span", "dts-flowSheen");
+        const soft = el("span", "dts-fxGlowSoft");
+        const strong = el("span", "dts-fxGlowStrong");
+        const glyph = el("span", "dts-fxGlyph");
+        for (const suffix of ["", " dts-fxGlyphRow--b"]) {
+          const row = el("span", "dts-fxGlyphRow" + suffix);
+          row.textContent = GLYPHS + GLYPHS;
+          glyph.append(row);
+        }
+        flow.append(canvas, sheen, soft, strong, glyph);
+        PARTICLES.forEach((particle, index) => {
+          const path = el("span", "dts-flowPath", {
+            "--dts-flow-top": particle.top + "px",
+            "--dts-flow-duration": particle.duration + "s",
+            "--dts-flow-delay": particle.delay + "s",
+            "--dts-fx-i": String(index / PARTICLES.length),
+          });
+          path.append(el("i"));
+          flow.append(path);
+        });
+        return { flow, canvas };
+      }
+
+      function menu(styleId, options) {
+        const opts = options || {};
+        const style = STYLES[styleId];
+        const surface = el("div", "demo-surface");
+        const root = el("div", "dts-root");
+        root.dataset.dtsStyle = styleId;
+        const menuNode = el("div", "dts-menu");
+        menuNode.dataset.dtsStyle = styleId;
+        menuNode.setAttribute("role", "menu");
+
+        const cell = el("button", "dts-cell");
+        cell.type = "button";
+        cell.append(el("span", "dts-cellLabel"));
+        cell.firstChild.textContent = "模型";
+        const value = el("span", "dts-cellValue");
+        value.append(el("span"));
+        value.firstChild.textContent = "DeepSeek V4";
+        cell.append(value, svgPath("M6 4l4 4-4 4", "dts-cellChevron"));
+
+        const band = el("div", "dts-band");
+        const head = el("div", "dts-bandHead");
+        const headLabel = el("span", "dts-bandLabel");
+        headLabel.textContent = "推理强度";
+        const bandValue = el("span", "dts-bandValue");
+        head.append(headLabel, bandValue);
+        const scale = el("div", "dts-scale", {
+          "--dts-track-h": style.trackH + "px",
+          "--dts-thumb-w": style.thumbW + "px",
+          "--dts-thumb-h": style.thumbH + "px",
+          "--dts-pad": style.pad + "px",
+        });
+        const track = el("div", "dts-track");
+        track.setAttribute("role", "slider");
+        track.style.height = style.trackH + "px";
+        const rail = el("span", "dts-rail");
+        const fill = el("span", "dts-fill");
+        const flow = opts.effects ? buildFlow() : null;
+        if (flow) {
+          fill.append(flow.flow);
+          if (style.trackH < 24) flow.flow.dataset.dtsFlow = "thin";
+        }
+        const dots = EFFORTS.map((_, index) =>
+          el("span", "dts-dot", { left: position(index / LEVELS) }),
+        );
+        const thumb = el("span", "dts-thumb");
+        track.append(rail, fill, ...dots, thumb);
+        scale.append(track);
+
+        const ticks = el("div", "dts-ticks");
+        ticks.setAttribute("aria-hidden", "true");
+        EFFORTS.forEach((label, index) => {
+          const tick = el("button", "dts-tick");
+          tick.type = "button";
+          tick.textContent = label;
+          tick.style.left = position(index / LEVELS);
+          ticks.append(tick);
+        });
+        const axis = el("div", "dts-axis");
+        axis.setAttribute("aria-hidden", "true");
+        ["Faster", "Smarter"].forEach((label, index) => {
+          const span = el("span", "dts-axisLabel");
+          span.textContent = label;
+          span.style.left = position(index);
+          axis.append(span);
+        });
+        scale.append(ticks, axis);
+        ticks.style.display = style.labels === "axis" ? "none" : "";
+        axis.style.display = style.labels === "axis" ? "" : "none";
+        band.append(head, scale);
+        menuNode.append(cell, band);
+        root.append(menuNode);
+        surface.append(root);
+        const dom = { surface, root, menuNode, bandValue, track, fill, thumb, dots, ticks, axis, flow };
+        return { styleId, style, dom, ticksMode: style.labels, axisMode: style.labels === "axis" };
+      }
+
+      /* 三次贝塞尔求值：和 CSS 的 cubic-bezier 同一套参数。 */
+      function bezier([x1, y1, x2, y2]) {
+        const cx = 3 * x1;
+        const bx = 3 * (x2 - x1) - cx;
+        const ax = 1 - cx - bx;
+        const cy = 3 * y1;
+        const by = 3 * (y2 - y1) - cy;
+        const ay = 1 - cy - by;
+        const sampleX = (t) => ((ax * t + bx) * t + cx) * t;
+        const sampleY = (t) => ((ay * t + by) * t + cy) * t;
+        return (p) => {
+          let lo = 0;
+          let hi = 1;
+          for (let i = 0; i < 18; i += 1) {
+            const mid = (lo + hi) / 2;
+            if (sampleX(mid) < p) lo = mid;
+            else hi = mid;
+          }
+          return sampleY((lo + hi) / 2);
+        };
+      }
+
+      function applyPosition(entry, ratio) {
+        const { fill, thumb } = entry.dom;
+        thumb.style.left = position(ratio);
+        fill.style.width = position(ratio);
+      }
+
+      function applyDiscrete(entry, index) {
+        const { dom } = entry;
+        dom.bandValue.textContent = EFFORTS[index];
+        dom.dots.forEach((dot, i) => dot.classList.toggle("dts-dot--on", i <= index));
+        dom.ticks.querySelectorAll(".dts-tick").forEach((tick, i) => tick.classList.toggle("dts-tick--on", i === index));
+      }
+
+      /* 逐档的跨档滑动：从当前位置缓到目标刻度，急缓用外观自己的曲线。 */
+      function startGlide(entry, toRatio, now) {
+        const from = entry.position(now);
+        entry.glide = {
+          from,
+          to: toRatio,
+          start: now,
+          dur: entry.style.dur,
+          ease: bezier(entry.style.ease),
+        };
+      }
+
+      function currentPosition(entry, now) {
+        const glide = entry.glide;
+        if (!glide) return entry.rest;
+        const p = Math.min(1, Math.max(0, (now - glide.start) / glide.dur));
+        return glide.from + (glide.to - glide.from) * glide.ease(p);
+      }
+
+      function makeEntry(styleId, options) {
+        const built = menu(styleId, options);
+        const entry = {
+          ...built,
+          rest: (options && options.ratio) || 0,
+          index: (options && options.index) || 0,
+          committed: (options && options.index) || 0,
+          glide: null,
+          position(now) {
+            return currentPosition(this, now);
+          },
+          setInstantly(ratio, index) {
+            this.rest = ratio;
+            this.glide = null;
+            if (index !== undefined) {
+              this.index = index;
+              applyDiscrete(this, index);
+            }
+            applyPosition(this, ratio);
+          },
+          move(now, ratio, index, mode) {
+            if (mode === "smooth") {
+              this.rest = ratio;
+              this.glide = null;
+              applyPosition(this, ratio);
+              return;
+            }
+            if (index !== this.index) {
+              this.index = index;
+              applyDiscrete(this, index);
+              startGlide(this, index / LEVELS, now);
+            }
+            applyPosition(this, this.position(now));
+          },
+        };
+        entry.setInstantly(entry.rest, entry.index);
+        return entry;
+      }
+
+      /* 页面里所有 CSS 动画都交给时间轴：暂停 + seek。 */
+      let animRate = 2.25;
+      function seekAnimations(now) {
+        for (const anim of document.getAnimations()) {
+          anim.pause();
+          anim.currentTime = now * animRate;
+        }
+      }
+
+      function makeCaption(title, subtitle) {
+        const caption = document.getElementById("caption");
+        caption.textContent = "";
+        if (title) {
+          const strong = document.createElement("strong");
+          strong.textContent = title;
+          caption.append(strong);
+        }
+        if (subtitle) caption.append(document.createTextNode(subtitle));
+        return caption;
+      }
+
+      function makeComposer() {
+        const card = el("div", "demo-composer");
+        const prompt = el("div", "demo-prompt");
+        prompt.textContent = "把思考强度拧到刚好的那一档。";
+        const tools = el("div", "demo-tools");
+        const trigger = el("button", "dts-trigger");
+        trigger.type = "button";
+        const model = el("span", "dts-triggerLabel");
+        model.textContent = "DeepSeek V4";
+        const effort = el("span", "dts-triggerEffort");
+        effort.textContent = " · 高";
+        const chevron = svgPath("M4 6l4 4 4-4", "dts-chevron dts-chevron--open");
+        trigger.append(model, effort, chevron);
+        const send = el("span", "demo-send");
+        send.textContent = "↑";
+        tools.append(trigger, send);
+        card.append(prompt, tools);
+        return card;
+      }
+
+      function addCursor() {
+        const ns = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("class", "demo-cursor");
+        svg.setAttribute("viewBox", "0 0 16 20");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS(ns, "path");
+        path.setAttribute("d", "M2 2v14.3l4.1-4.1 2.7 6 2.3-1-2.7-5.9h5.5z");
+        path.setAttribute("fill", "#252a32");
+        path.setAttribute("stroke", "#fff");
+        path.setAttribute("stroke-width", "1.2");
+        path.setAttribute("stroke-linejoin", "round");
+        svg.append(path);
+        document.getElementById("stage").append(svg);
+        return svg;
+      }
+
+      function moveCursor(cursor, entry, ratio) {
+        const rect = entry.dom.track.getBoundingClientRect();
+        const stage = document.getElementById("stage").getBoundingClientRect();
+        const pad = entry.style.pad;
+        const x = rect.left - stage.left + pad + ratio * (rect.width - pad * 2);
+        const y = rect.top - stage.top + rect.height / 2;
+        cursor.style.transform = `translate(${x}px, ${y}px)`;
+      }
+
+      /* 人和手的位移：慢起慢收，中间快。 */
+      function smoothstep(t) {
+        const p = Math.min(1, Math.max(0, t));
+        return p * p * (3 - 2 * p);
+      }
+
+      function pointerRatio(now, start, end, from, to) {
+        if (now <= start) return from;
+        if (now >= end) return to;
+        return from + (to - from) * smoothstep((now - start) / (end - start));
+      }
+
+      /* ── 场景 1：三套外观 ─────────────────────────────────────────── */
+      function sceneSkins(stage) {
+        makeCaption("三套外观 · 紧凑", "形状与材质换，档位与提交路径不换");
+        const entry = makeEntry("compact", { ratio: 0 });
+        const slot = el("div", "demo-menu-slot");
+        slot.append(entry.dom.surface);
+        stage.append(slot, makeComposer());
+        const cursor = addCursor();
+
+        const plan = [
+          { at: 0, style: "compact", label: "紧凑" },
+          { at: 2000, style: "claude", label: "块面" },
+          { at: 3400, style: "codex", label: "胶囊" },
+        ];
+        const scale = (styleId) => {
+          const style = STYLES[styleId];
+          entry.dom.root.dataset.dtsStyle = styleId;
+          entry.dom.menuNode.dataset.dtsStyle = styleId;
+          entry.dom.ticks.style.display = style.labels === "axis" ? "none" : "";
+          entry.dom.axis.style.display = style.labels === "axis" ? "" : "none";
+          entry.dom.track.style.height = style.trackH + "px";
+          entry.dom.track.style.setProperty("--dts-track-h", style.trackH + "px");
+          entry.dom.track.style.setProperty("--dts-thumb-w", style.thumbW + "px");
+          entry.dom.track.style.setProperty("--dts-thumb-h", style.thumbH + "px");
+          entry.dom.track.style.setProperty("--dts-pad", style.pad + "px");
+          entry.dom.track.parentElement.style.setProperty("--dts-track-h", style.trackH + "px");
+          entry.dom.track.parentElement.style.setProperty("--dts-thumb-w", style.thumbW + "px");
+          entry.dom.track.parentElement.style.setProperty("--dts-thumb-h", style.thumbH + "px");
+          entry.dom.track.parentElement.style.setProperty("--dts-pad", style.pad + "px");
+          entry.style = style;
+          entry.setInstantly(entry.index / LEVELS, entry.index);
+        };
+        // 单位：毫秒。0–2s 紧凑拖两档；2–3.4s 块面拖一档；3.4s 起胶囊拖两档。
+        return (now) => {
+          const current = plan.filter((step) => now >= step.at).at(-1);
+          if (current.style !== entry.styleId) {
+            entry.styleId = current.style;
+            scale(current.style);
+            const strong = document.querySelector("#caption strong");
+            if (strong) strong.textContent = "三套外观 · " + current.label;
+          }
+          const drags = [
+            { start: 400, end: 1300, from: 0, to: 2 },
+            { start: 2250, end: 3000, from: 2, to: 3 },
+            { start: 3650, end: 4350, from: 3, to: 1 },
+          ];
+          let ratio = entry.index / LEVELS;
+          let active = null;
+          for (const drag of drags) {
+            if (now >= drag.start - 120 && now <= drag.end + 220) active = drag;
+          }
+          if (active) ratio = pointerRatio(now, active.start, active.end, active.from / LEVELS, active.to / LEVELS);
+          const index = active ? Math.round(ratio * LEVELS) : entry.index;
+          entry.move(now, ratio, index, "step");
+          if (active) moveCursor(cursor, entry, ratio);
+          cursor.style.opacity = active ? "1" : "0";
+          seekAnimations(now);
+        };
+      }
+
+      /* ── 场景 2：逐档 / 平滑 ───────────────────────────────────────── */
+      function sceneDrag(stage) {
+        makeCaption("同一次拖动 · 两种手感", "左：每跨一档滑过去　右：逐帧跟手，读数停在已提交档");
+        const stepEntry = makeEntry("compact", { ratio: 0 });
+        const smoothEntry = makeEntry("compact", { ratio: 0 });
+        const pair = el("div", "demo-pair");
+        const wrap = (entry, label) => {
+          const column = el("div");
+          const tag = el("div", "demo-label");
+          tag.textContent = label;
+          column.append(tag, entry.dom.surface);
+          return column;
+        };
+        pair.append(wrap(stepEntry, "逐档"), wrap(smoothEntry, "平滑"));
+        stage.append(pair);
+        const stepCursor = addCursor();
+        const smoothCursor = addCursor();
+        const releaseAt = 2200;
+
+        return (now) => {
+          const ratio = pointerRatio(now, 350, 1900, 0, 1);
+          const index = Math.round(ratio * LEVELS);
+          stepEntry.move(now, ratio, index, "step");
+
+          if (now < releaseAt) {
+            smoothEntry.dom.bandValue.textContent = EFFORTS[smoothEntry.committed];
+            smoothEntry.dom.dots.forEach((dot, i) => dot.classList.toggle("dts-dot--on", i <= smoothEntry.committed));
+            smoothEntry.dom.track.setAttribute("data-dts-follow", "");
+            smoothEntry.dom.thumb.style.left = position(ratio);
+            smoothEntry.dom.fill.style.width = position(ratio);
+            smoothEntry.rest = ratio;
+          } else if (!smoothEntry.released) {
+            /* 松手：按最近档吸附，读数这时才交给新档。 */
+            smoothEntry.released = true;
+            smoothEntry.committed = index;
+            smoothEntry.glide = {
+              from: ratio,
+              to: index / LEVELS,
+              start: now,
+              dur: smoothEntry.style.dur,
+              ease: bezier(smoothEntry.style.ease),
+            };
+            smoothEntry.dom.track.removeAttribute("data-dts-follow");
+            applyDiscrete(smoothEntry, index);
+          }
+          if (smoothEntry.released) applyPosition(smoothEntry, smoothEntry.position(now));
+
+          const active = now >= 350 && now <= 2600;
+          stepCursor.style.opacity = active ? "1" : "0";
+          smoothCursor.style.opacity = active ? "1" : "0";
+          if (now >= 350) {
+            moveCursor(stepCursor, stepEntry, ratio);
+            moveCursor(smoothCursor, smoothEntry, ratio);
+          }
+          seekAnimations(now);
+        };
+      }
+
+      /* ── 场景 3：四套特效 ─────────────────────────────────────────── */
+      function sceneEffects(stage) {
+        makeCaption("四套特效", "强度跟档位走：越高越亮、越鲜艳、越快");
+        const entry = makeEntry("codex", { ratio: 1, index: LEVELS, effects: true });
+        const center = el("div", "demo-center demo-center--zoom");
+        center.append(entry.dom.surface);
+        stage.append(center);
+        const field = createPixelFlow(entry.dom.flow.canvas, {
+          cell: 5,
+          color: () => readCssColor(entry.dom.flow.canvas, ["--dts-flow-color", "--dts-particle-color", "--dts-accent-color"]),
+          power: () => 1,
+          speed: () => 1,
+          reduced: () => false,
+        });
+        entry.dom.flow.flow.style.setProperty("--dts-power", "1");
+        const plan = [
+          { from: 0, fx: "flow", label: "流光场" },
+          { from: 1150, fx: "dust", label: "密度粒子" },
+          { from: 2300, fx: "pulse", label: "心跳" },
+          { from: 3450, fx: "glyph", label: "字符点阵" },
+        ];
+        return (now) => {
+          const current = plan.filter((step) => now >= step.from).at(-1);
+          if (entry.fx !== current.fx) {
+            entry.fx = current.fx;
+            entry.dom.flow.flow.dataset.dtsFx = current.fx;
+            const strong = document.querySelector("#caption strong");
+            if (strong) strong.textContent = "四套特效 · " + current.label;
+          }
+          window.__stepFlow(now);
+          seekAnimations(now);
+        };
+      }
+
+      const params = new URLSearchParams(location.search);
+      const scene = params.get("scene") || "skins";
+      const stage = document.getElementById("stage");
+      const render = scene === "skins" ? sceneSkins(stage) : scene === "drag" ? sceneDrag(stage) : sceneEffects(stage);
+
+      window.renderFrame = (now) => {
+        render(now);
+        return true;
+      };
+      window.__ready = true;
+    </script>
+  </body>
+</html>

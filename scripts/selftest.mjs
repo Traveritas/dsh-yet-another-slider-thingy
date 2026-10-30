@@ -175,7 +175,7 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
     setItem: (key, value) => store.set(key, value),
   };
   store.set(
-    'dsh-thinking-slider:colors',
+    'dsh-yet-another-slider-thingy:colors',
     JSON.stringify({
       codex: { fill: '#FF3366', tick: 'not-a-color' },
       claude: { track: '#112233' },
@@ -183,7 +183,7 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
     }),
   );
   const { migrateLegacyColors, storedPalettes, storedPaletteId } = pluginModule.exports.__test;
-  const legacy = migrateLegacyColors(JSON.parse(store.get('dsh-thinking-slider:colors')), 'claude');
+  const legacy = migrateLegacyColors(JSON.parse(store.get('dsh-yet-another-slider-thingy:colors')), 'claude');
   if (legacy.palettes.length !== 3) throw new Error('legacy colors should become one palette per skin');
   const claudeLegacy = legacy.palettes.find((palette) => palette.id === 'legacy-claude');
   if (claudeLegacy?.light.track !== '#112233') throw new Error('legacy claude track should be carried over');
@@ -196,7 +196,7 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   }
 
   /* 存储：内置项总会补齐，自定义项原样保留。 */
-  store.delete('dsh-thinking-slider:palettes');
+  store.delete('dsh-yet-another-slider-thingy:palettes');
   const empty = storedPalettes();
   const builtinIds = ['claude', 'codex', 'tundra', 'seasalt', 'duskrose'];
   if (empty.length !== builtinIds.length || builtinIds.some((id, index) => empty[index].id !== id)) {
@@ -207,7 +207,7 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
     throw new Error('tundra should ship with its light and dark colors');
   }
   store.set(
-    'dsh-thinking-slider:palettes',
+    'dsh-yet-another-slider-thingy:palettes',
     JSON.stringify([{ id: 'mine', name: '我的', light: { fill: '#ABCDEF' }, dark: {} }]),
   );
   const mixed = storedPalettes();
@@ -215,9 +215,9 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
     throw new Error('custom palettes should follow the built-ins');
   }
   if (mixed[mixed.length - 1].light.fill !== '#abcdef') throw new Error('palette hex should be normalized');
-  store.set('dsh-thinking-slider:palette', 'mine');
+  store.set('dsh-yet-another-slider-thingy:palette', 'mine');
   if (storedPaletteId() !== 'mine') throw new Error('palette id should read back');
-  store.set('dsh-thinking-slider:palette', '');
+  store.set('dsh-yet-another-slider-thingy:palette', '');
   if (storedPaletteId() !== 'auto') throw new Error('empty palette id should fall back to auto');
 }
 
@@ -230,9 +230,9 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   };
   const { storedSmooth } = pluginModule.exports.__test;
   if (storedSmooth() !== false) throw new Error('smooth should default to step');
-  store.set('dsh-thinking-slider:smooth', 'smooth');
+  store.set('dsh-yet-another-slider-thingy:smooth', 'smooth');
   if (storedSmooth() !== true) throw new Error('smooth should read back as true');
-  store.set('dsh-thinking-slider:smooth', 'garbage');
+  store.set('dsh-yet-another-slider-thingy:smooth', 'garbage');
   if (storedSmooth() !== false) throw new Error('unknown smooth value should fall back to step');
 }
 
@@ -246,15 +246,15 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   const { storedEffects, storedLabels, resolveEffects, resolveLabels } = pluginModule.exports.__test;
   if (storedEffects() !== 'auto') throw new Error('effects should default to auto');
   if (storedLabels() !== 'auto') throw new Error('labels should default to auto');
-  store.set('dsh-thinking-slider:effects', 'on');
-  store.set('dsh-thinking-slider:labels', 'none');
+  store.set('dsh-yet-another-slider-thingy:effects', 'on');
+  store.set('dsh-yet-another-slider-thingy:labels', 'none');
   /* 旧版的「开」= 胶囊那套流光 + 粒子，升级后落到密度粒子。 */
   if (storedEffects() !== 'dust') throw new Error('legacy effects on should read back as dust');
   if (storedLabels() !== 'none') throw new Error('labels none should read back');
-  store.set('dsh-thinking-slider:effects', 'glyph');
+  store.set('dsh-yet-another-slider-thingy:effects', 'glyph');
   if (storedEffects() !== 'glyph') throw new Error('effects glyph should read back');
-  store.set('dsh-thinking-slider:effects', 'sometimes');
-  store.set('dsh-thinking-slider:labels', 'faster');
+  store.set('dsh-yet-another-slider-thingy:effects', 'sometimes');
+  store.set('dsh-yet-another-slider-thingy:labels', 'faster');
   if (storedEffects() !== 'auto') throw new Error('unknown effects should fall back to auto');
   if (storedLabels() !== 'auto') throw new Error('unknown labels should fall back to auto');
 
@@ -1449,7 +1449,7 @@ react.reset();
   const captured = { spec: null };
   const fakeWindow = { __ModuleLoader__: { load: (spec) => { captured.spec = spec; } } };
   new Function('window', bundleSource)(fakeWindow);
-  if (!captured.spec || captured.spec.id !== 'dsh-thinking-slider') throw new Error('bundle did not register the dsh-thinking-slider factory');
+  if (!captured.spec || captured.spec.id !== 'dsh-yet-another-slider-thingy') throw new Error('bundle did not register the dsh-yet-another-slider-thingy factory');
   const exports = captured.spec.factory((name) => {
     if (name === 'react') return react.React;
     if (name === 'react-dom') return { createPortal: (node) => node };
@@ -1468,8 +1468,21 @@ react.reset();
     setItem: (key, value) => store.set(key, value),
   };
   globalThis.document.createElement = () => ({ dataset: {}, textContent: '', remove: noop });
+  /* 故意只写旧包名的键：apply 里的迁移要把它抄到新键，后面的配色迁移才读得到。 */
   store.set('dsh-thinking-slider:style', 'claude');
   store.set('dsh-thinking-slider:colors', JSON.stringify({ claude: { fill: '#112233' } }));
+
+  const { migrateLegacyStorage } = pluginModule.exports.__test;
+  migrateLegacyStorage();
+  if (store.get('dsh-yet-another-slider-thingy:style') !== 'claude') {
+    throw new Error('legacy style key should be copied to the new package name');
+  }
+  store.set('dsh-yet-another-slider-thingy:smooth', 'step');
+  store.set('dsh-thinking-slider:smooth', 'smooth');
+  migrateLegacyStorage();
+  if (store.get('dsh-yet-another-slider-thingy:smooth') !== 'step') {
+    throw new Error('legacy migration must not overwrite an existing new key');
+  }
 
   const { apply } = pluginModule.exports;
   const registered = [];
@@ -1499,7 +1512,7 @@ react.reset();
     throw new Error('seat should be injected with remote.session, got ' + JSON.stringify(injectDeps[0]));
   }
 
-  const section = registered.find((entry) => entry?.registration?.id === 'thinking-slider');
+  const section = registered.find((entry) => entry?.registration?.id === 'yet-another-slider');
   if (section === undefined) throw new Error('apply should register the settings section');
   const props = section.registration.inject();
   const paletteIds = props.getPalettes().map((palette) => palette.id);
@@ -1509,7 +1522,7 @@ react.reset();
   if (props.getPalette() !== 'legacy-claude') {
     throw new Error('legacy custom colors should be migrated and selected, got ' + props.getPalette());
   }
-  const storedPalettes = JSON.parse(store.get('dsh-thinking-slider:palettes'));
+  const storedPalettes = JSON.parse(store.get('dsh-yet-another-slider-thingy:palettes'));
   if (!Array.isArray(storedPalettes) || !storedPalettes.some((palette) => palette.id === 'legacy-claude')) {
     throw new Error('migration should persist the legacy palette');
   }
@@ -1521,12 +1534,12 @@ react.reset();
   props.renamePalette(added.id, '暮紫');
   props.setPaletteColor(added.id, 'light', 'fill', '#00FF00');
   props.setPaletteColor(added.id, 'dark', 'accent', '#aabbcc');
-  const saved = JSON.parse(store.get('dsh-thinking-slider:palettes')).find((palette) => palette.id === added.id);
+  const saved = JSON.parse(store.get('dsh-yet-another-slider-thingy:palettes')).find((palette) => palette.id === added.id);
   if (saved.name !== '暮紫' || saved.light.fill !== '#00ff00' || saved.dark.accent !== '#aabbcc') {
     throw new Error('palette edits should persist: ' + JSON.stringify(saved));
   }
   props.clearPaletteColor(added.id, 'fill');
-  const cleared = JSON.parse(store.get('dsh-thinking-slider:palettes')).find((palette) => palette.id === added.id);
+  const cleared = JSON.parse(store.get('dsh-yet-another-slider-thingy:palettes')).find((palette) => palette.id === added.id);
   if (cleared.light.fill !== undefined) throw new Error('clearing a slot should drop both modes');
   props.removePalette(added.id);
   if (props.getPalette() !== 'auto') throw new Error('removing the active palette should fall back to auto');

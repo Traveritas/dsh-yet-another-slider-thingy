@@ -1,23 +1,37 @@
 /* 把 preview/effects.html 里四个特效各截一张，用于比对。
-   node preview/shot.mjs [输出目录] */
+   需要自备 Playwright（不在插件依赖里）：
+     npm i -D playwright            # 或在别的项目里装好
+     DSH_PLAYWRIGHT=/path/to/playwright node preview/shot.mjs
+   浏览器默认用 Playwright 自带的 Chromium；要指定本机浏览器时给 DSH_CHROMIUM。
+   跑法：node preview/shot.mjs [输出目录]（默认 preview/shots） */
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require('D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const playwrightModule = process.env.DSH_PLAYWRIGHT ?? 'playwright';
 
-const out = path.resolve(process.argv[2] ?? 'shots');
+let chromium;
+try {
+  ({ chromium } = require(playwrightModule));
+} catch (error) {
+  console.error(`找不到 Playwright（${playwrightModule}）。装一份，或把模块路径给 DSH_PLAYWRIGHT。`);
+  throw error;
+}
+
+const out = path.resolve(process.argv[2] ?? path.join(here, 'shots'));
 fs.mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
   headless: true,
-  executablePath: 'C:/Users/Traveritas/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe',
+  ...(process.env.DSH_CHROMIUM ? { executablePath: process.env.DSH_CHROMIUM } : {}),
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1200 }, deviceScaleFactor: 2 });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => m.type() === 'error' && console.log('[console]', m.text()));
-await page.goto('file:///D:/Documents/dsh/dsh-thinking-slider/preview/effects.html');
+await page.goto(pathToFileURL(path.join(here, 'effects.html')).href);
 await page.waitForFunction(() => window.__labReady === true);
 await page.waitForTimeout(800);
 

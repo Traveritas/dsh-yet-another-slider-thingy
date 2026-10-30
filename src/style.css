@@ -1,4 +1,4 @@
-/* ── 思考强度滑条 · dsh-thinking-slider ─────────────────────────────────
+/* ── 思考强度滑条 · dsh-yet-another-slider-thingy ─────────────────────────────────
    顶替 composer 的模型位（conversation.input.model）。尺寸 / 字重 / 行高
    照抄官方 ModelSelect：触发器 28px、13px 字；菜单 4px 内边距、34px 行；
    面板材质直接复用宿主 MenuSurface，这里只管排布与滑条本身。

@@ -1,5 +1,5 @@
 /**
- * dsh-thinking-slider —— 浏览器端 bundle（v0.6.1）
+ * dsh-yet-another-slider-thingy —— 浏览器端 bundle（v0.6.1）
  *
  * 把 DSH composer 的模型位（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
  * 模型行照旧下钻到分组列表，推理强度是带卡位的滑条（逐档 / 平滑两种拖动方式）。面板材质直接用宿主
@@ -17,7 +17,7 @@
 const React = require("react");
 const h = React.createElement;
 
-const PLUGIN_ID = "dsh-thinking-slider";
+const PLUGIN_ID = "dsh-yet-another-slider-thingy";
 const ENABLED_KEY = PLUGIN_ID + ":enabled";
 const STYLE_KEY = PLUGIN_ID + ":style";
 const SMOOTH_KEY = PLUGIN_ID + ":smooth";
@@ -178,6 +178,19 @@ const FLOW_PARTICLES = [
 const COLORS_KEY = PLUGIN_ID + ":colors";
 const PALETTES_KEY = PLUGIN_ID + ":palettes";
 const PALETTE_KEY = PLUGIN_ID + ":palette";
+/* 改名前叫 dsh-thinking-slider：旧键只在新键为空时抄一次，之后不再读。 */
+const LEGACY_PLUGIN_ID = "dsh-thinking-slider";
+const STORAGE_KEY_SUFFIXES = [
+  "enabled",
+  "style",
+  "smooth",
+  "effects",
+  "fx",
+  "labels",
+  "colors",
+  "palettes",
+  "palette",
+];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const AUTO_PALETTE = "auto";
 /**
@@ -451,7 +464,7 @@ function registerThinkingSliderSeat(ctx, report, services) {
     primitives = require("@deepseek-ai/dsh-client-ui-primitives");
   } catch (error) {
     say("缺少 ui-primitives 模块");
-    console.warn("[thinking-slider] thinking slider needs the host ui-primitives module; the native model menu stays in place:", error);
+    console.warn("[yet-another-slider] thinking slider needs the host ui-primitives module; the native model menu stays in place:", error);
     return null;
   }
   if (primitives === null || typeof primitives !== "object") {
@@ -555,7 +568,7 @@ function registerThinkingSliderSeat(ctx, report, services) {
   } catch (error) {
     /* 注册被宿主拒绝（结构变了 / 同名冲突）：保持原生座位，不难为插件。 */
     say("注册被拒绝：" + (error?.message ?? String(error)));
-    console.warn("[thinking-slider] thinking slider seat was not registered; the native model menu stays in place:", error);
+    console.warn("[yet-another-slider] thinking slider seat was not registered; the native model menu stays in place:", error);
     return null;
   }
   try {
@@ -1843,6 +1856,24 @@ function createDarkStore() {
   };
 }
 
+/**
+ * 改名（dsh-thinking-slider → 现名）留下的旧设置：只在对应新键为空时抄一次，
+ * 不覆盖已经写过的值。localStorage 不可用时静默跳过，设置按默认走。
+ */
+function migrateLegacyStorage() {
+  try {
+    const storage = window.localStorage;
+    for (const suffix of STORAGE_KEY_SUFFIXES) {
+      const next = PLUGIN_ID + ":" + suffix;
+      if (storage.getItem(next) !== null) continue;
+      const legacy = storage.getItem(LEGACY_PLUGIN_ID + ":" + suffix);
+      if (legacy !== null) storage.setItem(next, legacy);
+    }
+  } catch {
+    /* localStorage 不可用：设置按默认走 */
+  }
+}
+
 function storedEnabled() {
   try {
     return window.localStorage.getItem(ENABLED_KEY) !== "off";
@@ -1869,7 +1900,7 @@ function installStyles(ctx) {
     return () => {
       tag.remove();
     };
-  }, "thinking-slider: stylesheet");
+  }, "yet-another-slider: stylesheet");
 }
 
 function ColorRow(props) {
@@ -2311,6 +2342,7 @@ function SettingsPanel(props) {
 const inject = ["slots"];
 
 function apply(ctx) {
+  migrateLegacyStorage();
   installStyles(ctx);
 
   let seatRetries = 0;
@@ -2329,7 +2361,7 @@ function apply(ctx) {
             sync();
           }, 300);
         }),
-      "thinking-slider: entry-error",
+      "yet-another-slider: entry-error",
     );
   }
 
@@ -2568,7 +2600,7 @@ function apply(ctx) {
       seatDispose = registerThinkingSliderSeat(seatCtx, setStatus, services) ?? null;
     } catch (error) {
       setStatus("注册异常：" + (error?.message ?? String(error)));
-      console.warn("[thinking-slider] registration failed:", error);
+      console.warn("[yet-another-slider] registration failed:", error);
     }
   };
 
@@ -2612,7 +2644,7 @@ function apply(ctx) {
         injectWatchdog = null;
       }
     },
-    "thinking-slider: inject watchdog",
+    "yet-another-slider: inject watchdog",
   );
 
   /* 服务在 apply 里先取好：槽位声明的 effect 里再开 ctx.inject 不可靠。 */
@@ -2649,7 +2681,7 @@ function apply(ctx) {
     ctx.slots.register(
       {
         name: "settings.section",
-        id: "thinking-slider",
+        id: "yet-another-slider",
         order: 60,
         label: () => "思考强度",
         inject: () => ({
@@ -2696,7 +2728,7 @@ function apply(ctx) {
     release();
     darkStore.dispose();
     listeners.clear();
-  }, "thinking-slider: cleanup");
+  }, "yet-another-slider: cleanup");
 }
 
 module.exports = {
@@ -2706,6 +2738,7 @@ module.exports = {
     createThinkingSliderSeat,
     registerThinkingSliderSeat,
     SettingsPanel,
+    migrateLegacyStorage,
     storedEnabled,
     storedStyle,
     storedSmooth,

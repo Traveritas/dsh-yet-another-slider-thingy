@@ -1,4 +1,4 @@
-# dsh-thinking-slider
+# dsh-yet-another-slider-thingy
 
 把 DSH composer 的**模型位**（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
 模型行照旧下钻到按提供方分组的模型列表，推理强度是带卡位的离散滑条，拖动方式可切**逐档**
@@ -21,12 +21,30 @@
 所以不碰设置时三套外观各是各的样子；想混搭就把它们改掉——例如把流光场借到块面上，或让胶囊也显示
 `Faster / Smarter` 两端字，再选一套「Claude 风」配色盖到任一形状上。
 
+## 预览
+
+![三套外观：紧凑 / 块面 / 胶囊](docs/skins.gif)
+
+同一次拖动，两种手感——左边逐档，每跨一档滑过去；右边平滑，拇指逐帧跟手、读数停在已提交档。
+
+![逐档与平滑](docs/drag.gif)
+
+四套特效，强度跟档位走；「跟随外观」时只有胶囊默认带密度粒子。
+
+![四套特效](docs/effects.gif)
+
 ## 安装
 
-应用内插件管理器：设置 → 插件 → 添加插件，spec 填本目录的绝对路径：
+应用内插件管理器：设置 → 插件 → 添加插件。先把仓库克隆到任意目录（示例是 Windows 路径）：
+
+```powershell
+git clone https://github.com/Traveritas/dsh-yet-another-slider-thingy.git D:\dsh\dsh-yet-another-slider-thingy
+```
+
+然后在 spec 里填克隆目录的绝对路径：
 
 ```
-D:\Documents\dsh\dsh-thinking-slider
+D:\dsh\dsh-yet-another-slider-thingy
 ```
 
 装好后在**设置 → 思考强度**里开关、切外观、特效、刻度、配色与拖动方式。设置页按「滑条 / 特效 / 配色」三类分组，
@@ -50,20 +68,20 @@ D:\Documents\dsh\dsh-thinking-slider
 - 失败：滑条回滚到已提交档，用原生 `Toast`（锚在 composer 卡片上）报错；`select` 返回
   `ok:false`、reject、同步抛三条路都会落到 Toast。目录加载失败仍是面板内的错误条 + 重试。
   `available === false`（subagent 会话）整座不渲染。
-- 设置存在 `localStorage["dsh-thinking-slider:enabled"]`，`off` = 关；关掉立刻回原生菜单。
-- 外观存在 `localStorage["dsh-thinking-slider:style"]`，`compact` / `claude` / `codex`（设置里显示成
+- 设置存在 `localStorage["dsh-yet-another-slider-thingy:enabled"]`，`off` = 关；关掉立刻回原生菜单。
+- 外观存在 `localStorage["dsh-yet-another-slider-thingy:style"]`，`compact` / `claude` / `codex`（设置里显示成
   紧凑 / 块面 / 胶囊）；只换形状与材质，不改档位、提交时机或失败回滚。
-- 特效存在 `localStorage["dsh-thinking-slider:effects"]`，`auto`（默认，只有胶囊有密度粒子）/
+- 特效存在 `localStorage["dsh-yet-another-slider-thingy:effects"]`，`auto`（默认，只有胶囊有密度粒子）/
   `off` / `flow` / `dust` / `pulse` / `glyph`——设置里显示成关 / 跟随外观 / 流光场 / 密度粒子 / 心跳 /
   字符点阵。旧版存的 `on` 读回来按 `dust` 处理，不算丢设置。紧凑的 2px 填充放不下粒子与字符，
   会自动降级成只有一道流光。
-- 特效自己的两项存在 `localStorage["dsh-thinking-slider:fx"]`，形如
+- 特效自己的两项存在 `localStorage["dsh-yet-another-slider-thingy:fx"]`，形如
   `{ "maxOnly": false, "speeds": { "flow": 1, "dust": 1, "pulse": 1, "glyph": 1 } }`：
   `maxOnly` 是「只在最高档出现」，`speeds` 是每个样式各一份的速度倍率（0.7 / 1 / 1.4）。
-- 底部刻度存在 `localStorage["dsh-thinking-slider:labels"]`，`auto`（默认，块面两端字、其余档位名）/
+- 底部刻度存在 `localStorage["dsh-yet-another-slider-thingy:labels"]`，`auto`（默认，块面两端字、其余档位名）/
   `ticks`（每档名字，可点）/ `axis`（`Faster / Smarter` 两端字）/ `none`（不留这一行）。
-- 拖动方式存在 `localStorage["dsh-thinking-slider:smooth"]`，`step` / `smooth`；切换立即生效，不重建座位。
-- 配色存在 `localStorage["dsh-thinking-slider:palettes"]`（数组）与 `:palette`（当前选中的 id，`auto` = 不覆盖），
+- 拖动方式存在 `localStorage["dsh-yet-another-slider-thingy:smooth"]`，`step` / `smooth`；切换立即生效，不重建座位。
+- 配色存在 `localStorage["dsh-yet-another-slider-thingy:palettes"]`（数组）与 `:palette`（当前选中的 id，`auto` = 不覆盖），
   形如 `[{ "id": "mine", "name": "暮紫", "light": { "fill": "#6f5685" }, "dark": {} }]`；空槽表示跟随主题。
 - 旧版按外观存的 `:colors`（`{"claude":{"fill":"#…"}}`）在升级时按外观拆成独立配色，名字带「旧自定义 · 块面」，
   并自动选中当前外观那一套——不会静默丢色。
@@ -75,7 +93,7 @@ D:\Documents\dsh\dsh-thinking-slider
 
 ## 依赖的宿主契约
 
-对着 DSH **0.2.1-rc.3** 的 asar 源码核对：
+在 DSH **0.2.1-rc.5** 上实跑通过；下表最初对着 0.2.1-rc.3 的 asar 源码核对：
 
 | 依赖 | 用途 |
 |---|---|
@@ -93,7 +111,7 @@ D:\Documents\dsh\dsh-thinking-slider
   `renderSlot` 只允许条目调用自己声明的子槽位，而该子槽位已被官方条目声明（再声明会直接抛错）。
   所以模型名直出目录名，装了 `dsh-client-ui-deepseek-model-label-1017` 这类标签装饰的插件在
   **座位上**不再显示徽章；`/model` 弹窗不受影响。想保留 label 只能改成「包装官方条目、只换
-  推理等级那一块」，代价是绑死宿主的菜单内部结构（文案与 pane 数），见 `.research` 里竞品调研。
+  推理等级那一块」，代价是绑死宿主的菜单内部结构（文案与 pane 数）。
 - **半公开契约**：`ctx.modelDirectories`（`ModelDirectoryResolver`）与 store 的 snapshot 形状随
   DSH 版本可能变；大版本升级后要复核。
 - **与旧版主题冲突**：`dsh-theme-averita` 0.7.0 曾把这个座位内联在主题包里。两者同装时，
@@ -212,6 +230,14 @@ node scripts/selftest.mjs  # 极小 React 垫片里真跑座位与设置页：�
 - [`src/pixel-flow.js`](src/pixel-flow.js)：流光场的像素随机场（域扭曲 fbm + 五阶量化 + Bayer 抖动），
   纯函数、无依赖；预览页直接 `<script>` 引它，和插件共用一份实现。
 - [`preview/effects.html`](preview/effects.html)：四个特效 × 三种外观 × 四个功率档并排的对照页，
-  直接加载 `src/style.css`，不用重启 DSH 就能调；`node preview/shot.mjs <输出目录>` 用 Playwright
-  把它截成图（动画会停在固定相位，便于比较）。
+  直接加载 `src/style.css`，不用重启 DSH 就能调；`node preview/shot.mjs [输出目录]` 用 Playwright
+  把它截成图（动画会停在固定相位，便于比较）。Playwright 要自备：用 `DSH_PLAYWRIGHT` 指模块路径，
+  用 `DSH_CHROMIUM` 指本机浏览器（不设就用 Playwright 自带的）。
+- [`preview/demo.html`](preview/demo.html)：README 三张 GIF 的舞台（三套外观 / 逐档与平滑 / 四套特效），
+  复刻座位同构的 DOM 与真实样式，`renderFrame(t)` 由脚本逐帧驱动；`node preview/gif.mjs [scene|all]`
+  用 Playwright 截图、ffmpeg 编码到 `docs/*.gif`（`FFMPEG` 指可执行文件）。
 - 与主题的关系：`dsh-theme-averita` 的「配套插件」之一，互不依赖；主题不再内联这个座位。
+
+## License
+
+MIT © 2026 AveritA
