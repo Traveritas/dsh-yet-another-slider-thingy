@@ -973,13 +973,25 @@ function apply(ctx) {
   trace("apply");
   installStyles(ctx);
 
+  let seatRetries = 0;
   if (typeof ctx.slots.onEntryError === "function") {
     ctx.effect(
       () =>
         ctx.slots.onEntryError((key, registration, error, retired) => {
-          trace(
-            `entryError ${String(key)} retired=${String(retired)} ${error?.message ?? String(error)}`,
-          );
+          const stack = String(error?.stack ?? "")
+            .split(String.fromCharCode(10))
+            .slice(0, 4)
+            .join(" | ");
+          trace(`entryError ${String(key)} retired=${String(retired)} ${error?.message ?? String(error)} :: ${stack}`);
+          if (String(key) !== "conversation.input.model") return;
+          if (registration?.component?.displayName !== "ThinkingSliderSeat") return;
+          if (seatRetries >= 3) return;
+          seatRetries += 1;
+          trace("re-register #" + seatRetries);
+          setTimeout(() => {
+            release();
+            sync();
+          }, 300);
         }),
       "thinking-slider: entry-error",
     );
@@ -996,6 +1008,7 @@ function apply(ctx) {
   const setStatus = (text) => {
     const next = String(text ?? "");
     trace(next);
+    if (next.startsWith("已接管（座位已渲染）")) seatRetries = 0;
     if (next === status) return;
     status = next;
     for (const fn of listeners) fn();
