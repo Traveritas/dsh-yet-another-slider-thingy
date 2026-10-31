@@ -48,21 +48,21 @@
 
 ## 安装
 
-应用内插件管理器：设置 → 插件 → 添加插件。先把仓库克隆到任意目录（示例是 Windows 路径）：
+先克隆仓库到任意目录（下面拿 `D:\dsh\dsh-yet-another-slider-thingy` 举例，换成你自己的路径也行）：
 
 ```powershell
-git clone https://github.com/Traveritas/dsh-yet-another-slider-thingy.git D:\dsh\dsh-yet-another-slider-thingy
+git clone --depth 1 https://github.com/Traveritas/dsh-yet-another-slider-thingy.git D:\dsh\dsh-yet-another-slider-thingy
 ```
 
-然后在 spec 里填克隆目录的绝对路径：
+**设置 → 插件 → 添加插件**，spec 填克隆目录的**绝对路径**（已经 clone 过的，直接在管理器里选那个目录）。管理器会把它 `pnpm link` 进 profile 并加入 `dsh.profile.bundles`；看返回的 `application`：`applied` 即生效，`restart-required` 就完全退出桌面端再开。
 
-```
-D:\dsh\dsh-yet-another-slider-thingy
-```
+> 桌面端的 `desktop` profile 由 Electron 独占，`dsh plugin --profile desktop ...` 会被拒（`profile "desktop" is managed exclusively by the Electron application`）。所以桌面端只走应用内插件管理器；其它 profile 才用得上 `dsh plugin --profile <名字> add "link:<绝对路径>"`（路径带空格要引号）。
 
-装好后在**设置 → 思考强度**里开关、切外观、拇指形状与大小、特效、刻度、配色与拖动方式。设置页按「滑条 / 特效 / 配色」三类分组，
-每行的说明文字靠右；窄窗口里说明会落到控件下方。桌面端没有 HMR 时需要完整重启；有 HMR 时保存后约二十秒
-热加载。
+装好后在**设置 → 思考强度**里开关、切外观、拇指形状与大小、特效、刻度、配色与拖动方式。设置页按「滑条 / 特效 / 配色」三类分组，每行说明文字靠右，窄窗口里会落到控件下方。桌面端没有 HMR 时要完整重启才见改动，有 HMR 时保存后约二十秒热加载。
+
+## 卸载
+
+在同一个插件管理器里移除即可；卸载或关掉开关后，composer 立刻回到官方模型位。
 
 ## 行为
 
