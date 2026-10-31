@@ -239,7 +239,10 @@
 .dts-thumb {
   position: absolute;
   top: 50%;
-  z-index: 3;
+  /* 拇指永远在最上层：块面的轨道描边环画在 .dts-track::after 上（z-index 4），
+     拇指选「大」后比轨道高（34px vs 28px），z-index 若低于描边环，那 1px 线
+     会横穿拇指正面。这里高过描边环，只让它在轨道上、不在拇指上。 */
+  z-index: 5;
   box-sizing: border-box;
   width: var(--dts-thumb-w, 12px);
   height: var(--dts-thumb-h, 12px);
