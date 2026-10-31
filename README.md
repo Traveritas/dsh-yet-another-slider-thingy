@@ -1,5 +1,7 @@
 # dsh-yet-another-slider-thingy
 
+同系列 · [AveritA 的 DSH 插件目录](https://github.com/Traveritas/averita-s-dsh-plugins)
+
 把 DSH composer 的**模型位**（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
 模型行照旧下钻到按提供方分组的模型列表，推理强度是带卡位的离散滑条，拖动方式可切**逐档**
 （默认，指针始终吸在刻度上）或**平滑**（拇指连续跟手，松手吸附到最近档）。面板材质直接用宿主的
