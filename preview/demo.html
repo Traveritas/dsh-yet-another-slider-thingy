@@ -214,20 +214,38 @@
       const EFFORTS = ["低", "中", "高", "最高"];
       const LEVELS = EFFORTS.length - 1;
       const STYLES = {
-        compact: { pad: 6, trackH: 20, thumbW: 12, thumbH: 12, labels: "ticks", dur: 120, ease: [0.25, 0.1, 0.25, 1] },
-        claude: { pad: 14, trackH: 28, thumbW: 24, thumbH: 28, labels: "axis", dur: 280, ease: [0.2, 0, 0, 1] },
-        codex: { pad: 14, trackH: 28, thumbW: 28, thumbH: 28, labels: "ticks", dur: 200, ease: [0.23, 1, 0.32, 1] },
+        compact: { pad: 6, trackH: 20, thumbW: 12, thumbH: 12, shape: "square", labels: "ticks", dur: 120, ease: [0.25, 0.1, 0.25, 1] },
+        claude: { pad: 14, trackH: 28, thumbW: 24, thumbH: 28, shape: "square", labels: "axis", dur: 280, ease: [0.2, 0, 0, 1] },
+        codex: { pad: 16, trackH: 28, thumbW: 32, thumbH: 32, shape: "circle", labels: "ticks", dur: 200, ease: [0.23, 1, 0.32, 1] },
       };
+      /* 和座位里的 THUMB_DISCS 同一份形状数据；只有「圆」走矢量，
+         圆角方保留旧版 CSS，所以这里不给 square 条目。 */
+      const THUMB_DISCS = {
+        compact: {
+          circle: { viewBox: "0 0 16 16", strokeWidth: 2, shape: { type: "circle", cx: 8, cy: 8, r: 7 } },
+        },
+        codex: {
+          circle: { viewBox: "0 0 32 32", strokeWidth: 1.5, shape: { type: "circle", cx: 16, cy: 16, r: 15.25 } },
+        },
+      };
+      /* 和座位同一份密度粒子数据：depth 决定远近（尺寸 / 透明度 / 尾长 / 速度）。 */
       const PARTICLES = [
-        { top: 4, duration: 3.2, delay: 0 },
-        { top: 9, duration: 3.8, delay: -0.7 },
-        { top: 14, duration: 2.9, delay: -1.4 },
-        { top: 19, duration: 3.5, delay: -2.1 },
-        { top: 6, duration: 4.1, delay: -0.3 },
-        { top: 11, duration: 3.0, delay: -1.8 },
-        { top: 16, duration: 3.6, delay: -1.1 },
-        { top: 21, duration: 3.3, delay: -2.5 },
+        { top: 4, duration: 3.0, delay: 0, depth: 0.9 },
+        { top: 9, duration: 4.3, delay: -0.7, depth: 0.2 },
+        { top: 14, duration: 3.6, delay: -1.4, depth: 0.55 },
+        { top: 19, duration: 4.6, delay: -2.1, depth: 0.1 },
+        { top: 6, duration: 3.9, delay: -0.3, depth: 0.35 },
+        { top: 11, duration: 3.2, delay: -1.8, depth: 0.75 },
+        { top: 16, duration: 2.8, delay: -1.1, depth: 1 },
+        { top: 21, duration: 3.4, delay: -2.5, depth: 0.65 },
       ];
+      /* 和座位里的 dustVars() 同一个公式；改一处记得两边一起改。
+         尺寸是直径：整体缩到原来的一半。 */
+      const dustVars = (depth) => ({
+        "--dts-dust-size": (1.1 + 1.2 * depth).toFixed(2) + "px",
+        "--dts-dust-alpha": (0.45 + 0.55 * depth).toFixed(2),
+        "--dts-dust-tail": (7 + 16 * depth).toFixed(1) + "px",
+      });
       const GLYPHS = "01+#×/=:·".repeat(8);
 
       /* 可暂停的 rAF：像素流光场原本自己按帧走，这里改成由 renderFrame 喂时间。 */
@@ -268,6 +286,28 @@
         return svg;
       };
 
+      /* 矢量拇指：默认形状就够预览用，切换外观时整颗替换。 */
+      const buildThumb = (styleId) => {
+        const shape = STYLES[styleId].shape;
+        const disc = THUMB_DISCS[styleId]?.[shape];
+        const thumb = el("span", "dts-thumb" + (disc ? " dts-thumb--disc" : ""));
+        if (!disc) return thumb;
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "dts-thumbDisc");
+        svg.setAttribute("viewBox", disc.viewBox);
+        svg.setAttribute("aria-hidden", "true");
+        const node = document.createElementNS("http://www.w3.org/2000/svg", disc.shape.type);
+        for (const key of ["cx", "cy", "r", "x", "y", "width", "height", "rx"]) {
+          if (disc.shape[key] !== undefined) node.setAttribute(key, disc.shape[key]);
+        }
+        node.setAttribute("fill", "var(--dts-thumb-color, var(--dsw-alias-bg-base))");
+        node.setAttribute("stroke", "var(--dts-thumb-ring-color)");
+        node.setAttribute("stroke-width", disc.strokeWidth);
+        svg.append(node);
+        thumb.append(svg);
+        return thumb;
+      };
+
       /* 和座位同一个公式：pad + ratio * (100% - 2pad)。 */
       const position = (ratio) => `calc(var(--dts-pad) + ${ratio} * (100% - var(--dts-pad) * 2))`;
 
@@ -291,6 +331,7 @@
             "--dts-flow-duration": particle.duration + "s",
             "--dts-flow-delay": particle.delay + "s",
             "--dts-fx-i": String(index / PARTICLES.length),
+            ...dustVars(particle.depth),
           });
           path.append(el("i"));
           flow.append(path);
@@ -306,6 +347,7 @@
         root.dataset.dtsStyle = styleId;
         const menuNode = el("div", "dts-menu");
         menuNode.dataset.dtsStyle = styleId;
+        menuNode.dataset.dtsKnob = STYLES[styleId].shape;
         menuNode.setAttribute("role", "menu");
 
         const cell = el("button", "dts-cell");
@@ -342,7 +384,7 @@
         const dots = EFFORTS.map((_, index) =>
           el("span", "dts-dot", { left: position(index / LEVELS) }),
         );
-        const thumb = el("span", "dts-thumb");
+        const thumb = buildThumb(styleId);
         track.append(rail, fill, ...dots, thumb);
         scale.append(track);
 
@@ -564,6 +606,10 @@
           const style = STYLES[styleId];
           entry.dom.root.dataset.dtsStyle = styleId;
           entry.dom.menuNode.dataset.dtsStyle = styleId;
+          entry.dom.menuNode.dataset.dtsKnob = style.shape;
+          const nextThumb = buildThumb(styleId);
+          entry.dom.thumb.replaceWith(nextThumb);
+          entry.dom.thumb = nextThumb;
           entry.dom.ticks.style.display = style.labels === "axis" ? "none" : "";
           entry.dom.axis.style.display = style.labels === "axis" ? "" : "none";
           entry.dom.track.style.height = style.trackH + "px";
@@ -690,6 +736,13 @@
           if (entry.fx !== current.fx) {
             entry.fx = current.fx;
             entry.dom.flow.flow.dataset.dtsFx = current.fx;
+            if (current.fx === "dust") {
+              entry.dom.flow.flow.dataset.dtsTrail = "";
+              entry.dom.flow.flow.dataset.dtsTrailLength = "short";
+            } else {
+              delete entry.dom.flow.flow.dataset.dtsTrail;
+              delete entry.dom.flow.flow.dataset.dtsTrailLength;
+            }
             const strong = document.querySelector("#caption strong");
             if (strong) strong.textContent = "四套特效 · " + current.label;
           }

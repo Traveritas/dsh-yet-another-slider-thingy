@@ -1,7 +1,7 @@
 {
   "name": "dsh-yet-another-slider-thingy",
-  "version": "0.6.1",
-  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条（紧凑 / 块面 / 胶囊三种外观只管形状与材质；配色独立一层，内置五套——Claude 风 / Codex 风 / 苔原 / 海盐 / 暮玫，可新增、浅深各一套值；逐档 / 平滑拖动；四套特效——流光场 / 密度粒子 / 心跳 / 字符点阵，强度跟档位走：越高越亮、越鲜艳、越快；特效与底部刻度可按外观跟随或单独指定）。Composer model seat with a discrete reasoning-effort slider, three shape-only skins, independent editable palettes (five built-ins, light/dark sets), step/smooth dragging, four tier-driven effects (flow field, dust, heartbeat, glyph stream) and separate effect / label styles.",
+  "version": "0.7.0",
+  "description": "接管 DSH composer 的模型位：模型行 + 思考强度滑条（紧凑 / 块面 / 胶囊三种外观只管形状与材质；紧凑与胶囊的拇指可切圆角方 / 圆，全部拇指另有标准 / 大两档；配色独立一层，内置五套——Claude 风 / Codex 风 / 苔原 / 海盐 / 暮玫，可新增、浅深各一套值；逐档 / 平滑拖动；五套特效——流光场 / 密度粒子 / 心跳 / 字符点阵 / 渐变，强度跟档位走：越高越亮、越鲜艳、越快，渐变可自己填多个色标（留空跟随配色）并切正反流向；特效与底部刻度可按外观跟随或单独指定）。Composer model seat with a discrete reasoning-effort slider, three shape-only skins with per-skin knob shapes (rounded square / circle) and a shared two-step knob-size setting, independent editable palettes (five built-ins, light/dark sets), step/smooth dragging, five tier-driven effects (flow field, dust, heartbeat, glyph stream, gradient with editable color stops and direction) and separate effect / label styles.",
   "keywords": [
     "dsh",
     "dsh-plugin",

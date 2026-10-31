@@ -244,13 +244,61 @@
   width: var(--dts-thumb-w, 12px);
   height: var(--dts-thumb-h, 12px);
   margin: calc(var(--dts-thumb-h, 12px) * -0.5) 0 0 calc(var(--dts-thumb-w, 12px) * -0.5);
-  border-radius: 50%;
+  /* 圆角方：25% 实机对比直边过多，旧版明显更圆；按 40% 落地
+     （12px→4.8、32px→12.8、24px 轨道→9.6）。紧凑的圆角方和块面
+     共用这层 CSS；圆钮由 .dts-thumb--disc 接管。 */
+  border-radius: 40%;
   background: var(--dts-thumb-color, var(--dsw-alias-bg-base));
   box-shadow:
     0 0 0 2px var(--dts-accent-color, var(--dsw-alias-state-business-primary)),
     var(--dsw-elevation-prominent, 0 2px 6px rgba(0, 0, 0, 0.16));
   pointer-events: none;
   transition: left 0.12s ease;
+}
+
+/* ── 矢量拇指（紧凑 / 胶囊的「圆」）────────────────────────────────────
+   圆钮画在 SVG 里：部分渲染环境会把 border-radius 钳到盒子的一小部分
+   （50% / 16px / 999px 在 32px 方块上都只画出约 8px），圆钮会变成圆角方。
+   圆角方反而故意保留旧版 CSS，让那台机器继续给出它原来的圆角。
+   路径不吃那条规则；描边颜色与填充色仍由配色变量给。 */
+.dts-thumb--disc {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.14));
+  transition:
+    left 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    filter 0.15s ease;
+}
+
+[data-dts-style="compact"] .dts-thumb--disc {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.16));
+  transition:
+    left 0.12s ease,
+    filter 0.15s ease;
+}
+
+[data-dts-style="codex"] .dts-thumb--disc {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.14));
+  transition:
+    left 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    filter 0.15s ease;
+}
+
+.dts-thumbDisc {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+[data-dts-style] .dts-track:focus-visible .dts-thumb--disc {
+  /* 基础焦点规则给的是矩形 box-shadow；圆 / 圆角方要跟画出来的路径，改用 glow，
+     并把那圈矩形环清掉。 */
+  box-shadow: none;
+  filter:
+    drop-shadow(0 0 1px var(--dts-accent-color, var(--dsw-alias-state-business-primary)))
+    drop-shadow(0 0 2px var(--dts-accent-color, var(--dsw-alias-state-business-primary)));
 }
 
 /* 平滑拖动是逐帧跟手：哪怕 100ms 的过渡也会让拇指落在指针后面，所以关掉。
@@ -393,9 +441,18 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   left: 0;
   height: auto;
   margin: 0;
-  border-radius: 12px;
+  /* 999px 而不是 24px/2：两端永远是半圆。写死 12px 时，只要宿主或后续改动把
+     轨道撑高一点（DIP 取整、字号、命中区调整），半圆就缩成圆角矩形——胶囊
+     立刻看着像块面。 */
+  border-radius: 999px;
+  /* 半圆再补一道 clip-path：个别渲染环境会把 border-radius 钳到盒子的一小部分
+     （实测 999px 在 32px 盒子上只画出约 8px），胶囊两端就不再是半圆。路径裁剪
+     不走那条规则。 */
+  clip-path: inset(0 round 999px);
   background: var(--dts-track-color);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+  /* 1px 的描边环：0.5px 在 125% / 150% 缩放下不足一个设备像素，被抗锯齿糊成
+     一层灰雾，胶囊的轮廓就散了。 */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
 }
 
 [data-dts-style="codex"] .dts-fill {
@@ -405,7 +462,10 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   height: auto;
   margin: 0;
   overflow: hidden;
-  border-radius: 12px 0 0 12px;
+  /* 两端都给半圆：满档时右边那半个圆压在拇指底下，看不出来，但一旦拇指换小或
+     换位置，也不会露出一个直角。 */
+  border-radius: 999px;
+  clip-path: inset(0 round 999px);
   background: var(--dts-fill-color);
   transition: width 0.2s cubic-bezier(0.23, 1, 0.32, 1);
 }
@@ -419,22 +479,48 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   background: color-mix(in srgb, var(--dts-thumb-color) 55%, transparent);
 }
 
-[data-dts-style="codex"] .dts-thumb {
+[data-dts-style="compact"] {
+  /* 紧凑的圆点一直是一圈强调色；SVG 拇指的 stroke 读这一枚。 */
+  --dts-thumb-ring-color: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
+}
+
+[data-dts-style="codex"] {
+  /* 圆钮的描边色：SVG 的 stroke 读这个变量。 */
+  --dts-thumb-ring-color: color-mix(in srgb, var(--dsw-alias-label-primary) 36%, transparent);
+}
+
+/* ── 胶囊的圆角方：沿用旧版材质，圆角按 40%（实机确认）───────────────
+   出错那版拇指是 32px；25% 的直边实机对比过多，40% 是 32px→12.8。
+   填充、0.5px 描边、两层柔影都和旧版一致。 */
+[data-dts-style="codex"][data-dts-knob="square"] .dts-thumb {
   border: 0.5px solid color-mix(in srgb, var(--dsw-alias-label-primary) 40%, transparent);
-  border-radius: 50%;
+  border-radius: 40%;
   background: var(--dts-thumb-color);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.14),
     0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  filter: none;
   transition:
     left 0.2s cubic-bezier(0.23, 1, 0.32, 1),
     box-shadow 0.15s ease;
 }
 
-[data-dts-style="codex"] .dts-track:focus-visible .dts-thumb {
+[data-dts-style="codex"][data-dts-knob="square"] .dts-track:focus-visible .dts-thumb {
   box-shadow:
     0 0 0 2px var(--dts-accent-color),
     0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+/* 轨道两端同理：24px 高的轨道按 40% 取 10px。 */
+[data-dts-style="codex"][data-dts-knob="square"] .dts-rail {
+  border-radius: 10px;
+  clip-path: none;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+}
+
+[data-dts-style="codex"][data-dts-knob="square"] .dts-fill {
+  border-radius: 10px 0 0 10px;
+  clip-path: none;
 }
 
 /* ── Codex 满档：蓝色填充里的流动渐变 + 横穿粒子 ───────────────────
@@ -448,6 +534,9 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   /* 最低档的底噪：默认留一点存在感（不然「特效开着」像没开）。
      设置成「只在最高档」时座位把它写成 0——那时 0 就该是彻底看不见。 */
   --dts-fx-floor: 0.18;
+  /* 密度粒子尾迹的长度倍率：短 / 中 / 长由 [data-dts-trail-length] 选，
+     默认 1 就是「短」，不挂属性也不会掉档。 */
+  --dts-trail-scale: 1;
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -477,6 +566,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
     transparent 74%
   );
   background-size: 260% 100%;
+  /* 与 260% 的图一起走满一张 tile（2.6W）：3.4s 时原速是 1.22W/s，2.13s 保持同速。 */
+  animation: dts-flow-sheen-thin 2.13s linear infinite;
 }
 
 .dts-flowSheen {
@@ -490,15 +581,29 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
     transparent 66%
   );
   background-size: 220% 100%;
-  animation: dts-flow-sheen 3.4s linear infinite;
+  /* 扫光以前从 180% 跑到 -80%（1.42 张 tile），循环接缝会跳一下；
+     现在只走满一张 tile（2.2W），2400ms 保持原来的扫动速度。 */
+  animation: dts-flow-sheen 2.4s linear infinite;
 }
 
+/* 一张 tile 的循环：起止相位只差一个图幅，背景无缝平铺，接缝处不跳。
+   220% 图幅：180% → -3.333% 正好是 220% 的位移。 */
 @keyframes dts-flow-sheen {
   0% {
     background-position: 180% 0;
   }
   100% {
-    background-position: -80% 0;
+    background-position: -3.333% 0;
+  }
+}
+
+/* 260% 图幅同理：180% → 17.5% 正好是 260% 的位移。 */
+@keyframes dts-flow-sheen-thin {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: 17.5% 0;
   }
 }
 
@@ -515,13 +620,59 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 
 .dts-flowPath i {
   position: absolute;
-  top: -1.5px;
+  /* 远近：尺寸 / 透明度由座位按 depth 写在路径上（近大而亮、远小而淡），
+     这里只按自己的尺寸把点钉在轨道中线上。 */
+  top: calc(var(--dts-dust-size, 3px) / -2);
   left: 0;
-  width: 3px;
-  height: 3px;
+  width: var(--dts-dust-size, 3px);
+  height: var(--dts-dust-size, 3px);
   border-radius: 999px;
-  background: var(--dts-particle-color);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--dts-particle-color) 34%, transparent);
+  /* 尘埃专用色槽优先；没填才沿用粒子色。 */
+  background: var(--dts-dust-color, var(--dts-particle-color));
+  opacity: var(--dts-dust-alpha, 1);
+}
+
+/* 尾迹：粒子从右往左跑，尾巴留在右侧；靠点的一端实，远端收成尖、淡出。
+   长度跟深度、档位、长度档（data-dts-trail-length）一起走；
+   开关挂在 .dts-flow[data-dts-trail] 上。伪元素一直存在、只是透明度为 0，
+   切换时淡入淡出，点不会抖一下。 */
+.dts-flowPath i::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  /* 尾巴从点身里面长出来，前一段被圆点盖住，接缝不会是一道硬边。 */
+  left: 55%;
+  width: calc(
+    var(--dts-dust-tail, 12px) * 0.95 * var(--dts-trail-scale, 1) * (0.55 + 0.45 * var(--dts-power))
+  );
+  /* 尾迹和点同粗：起点宽度 = 点直径，再被 clip-path 收成尖。 */
+  height: max(1px, var(--dts-dust-size, 3px));
+  border-radius: 999px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--dts-dust-color, var(--dts-particle-color)) 84%, transparent) 0%,
+    color-mix(in srgb, var(--dts-dust-color, var(--dts-particle-color)) 30%, transparent) 55%,
+    transparent 100%
+  );
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.24s cubic-bezier(0.23, 1, 0.32, 1);
+  pointer-events: none;
+}
+
+.dts-flow[data-dts-fx="dust"][data-dts-trail] .dts-flowPath i::after {
+  opacity: 0.9;
+}
+
+/* 尾迹长度：短 = 基准，中 / 长逐级加长；只改倍率，不重算渐变与形状。
+   三档按 2.2 倍递进（1 / 2.2 / 4.4），长档是短档的 4.4 倍。 */
+.dts-flow[data-dts-trail-length="medium"] {
+  --dts-trail-scale: 2.2;
+}
+
+.dts-flow[data-dts-trail-length="long"] {
+  --dts-trail-scale: 4.4;
 }
 
 @keyframes dts-flow-travel {
@@ -552,6 +703,7 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 
 /* 不属于当前样式的层一律不画。 */
 .dts-fxGlyph,
+.dts-fxGradient,
 .dts-fxGlowSoft,
 .dts-fxGlowStrong {
   display: none;
@@ -574,20 +726,25 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   pointer-events: none;
 }
 
-/* 密度粒子：还是原来那 8 颗横穿的小点，但档位决定「亮起来几颗」和「点多大」。
-   第 i 颗在 power 越过 i/8 之后才出现，所以低档是一两颗，满档是一整条流。 */
+/* 密度粒子：8 颗横穿的小点，按 depth 分远近（近大而亮、远小而淡，速度也不同）；
+   档位决定「亮起来几颗」和「点多大」：第 i 颗在 power 越过 i/8 之后才出现，
+   所以低档是一两颗，满档是一整条有纵深感的流。 */
 .dts-flow:not([data-dts-fx="dust"]) .dts-flowPath {
   display: none;
 }
 
 .dts-flow[data-dts-fx="dust"] .dts-flowPath i {
   scale: clamp(0.01, calc(var(--dts-power) * 8.6 - var(--dts-fx-i, 0) * 8), 1.15);
-  box-shadow: 0 0 calc(3px + 8px * var(--dts-power))
+  /* 光晕跟着点走：点缩一半，晕也收，远的比近的再小一档。 */
+  box-shadow: 0 0 calc(var(--dts-dust-size, 3px) * (1.4 + 1.4 * var(--dts-power)))
     color-mix(in srgb, var(--dts-dust-color, var(--dts-particle-color)) 52%, transparent);
 }
 
-/* 心跳：一层铺满的呼吸光 + 一道从拇指冲向左侧的脉冲波。
-   双峰的关键帧读起来像「咚·咚」，加上那道波就不只是「亮一下」了。 */
+/* 心跳：一层铺满的呼吸光 + 一道在填充里往返的脉冲波。
+   脉冲从拇指端出发，先快后慢地冲出左端（最远点落在可见边界外，整团光都看不见了
+   再折返）；alternate 会把时间函数一起倒放，所以回来正好是「由慢到快」。
+   出发时光团用 scaleX(0.4) 压在拇指端，像从按钮里挤出来；回来再收回拇指端。
+   双峰「咚·咚」照着旧版的节奏留下来了。 */
 .dts-flow[data-dts-fx="pulse"] .dts-fxGlowSoft,
 .dts-flow[data-dts-fx="pulse"] .dts-fxGlowStrong {
   display: block;
@@ -598,14 +755,16 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 
 .dts-flow[data-dts-fx="pulse"] .dts-fxGlowSoft {
   inset-inline: 0;
-  animation: dts-fx-beat 2.1s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+  animation: dts-fx-beat 2.1s cubic-bezier(0.33, 0, 0.67, 1) infinite;
 }
 
 .dts-flow[data-dts-fx="pulse"] .dts-fxGlowStrong {
   right: 0;
   left: auto;
   width: 58%;
-  animation: dts-fx-wave 2.1s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  /* 伸缩钉在右端（拇指一侧），光团收起时压在按钮上，不会从中间长出来。 */
+  transform-origin: 100% 50%;
+  animation: dts-fx-wave 1.05s cubic-bezier(0.33, 1, 0.68, 1) infinite alternate;
 }
 
 .dts-fxGlowSoft {
@@ -616,47 +775,43 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--dts-pulse-color, var(--dts-particle-color)) 95%, transparent) 62%, transparent);
 }
 
+/* 双峰：0% 暗着接住回来的脉冲，6% 一记「咚」，24% 补一记轻的，然后退到谷底。
+   峰值给回到 1，别再是软绵绵的单峰。 */
 @keyframes dts-fx-beat {
   0%,
   100% {
-    opacity: 0.24;
-    transform: scaleX(0.97);
-  }
-  7% {
-    opacity: 1;
-    transform: scaleX(1.02);
-  }
-  16% {
-    opacity: 0.42;
+    opacity: 0.26;
     transform: scaleX(0.99);
   }
-  25% {
+  6% {
+    opacity: 1;
+    transform: scaleX(1.015);
+  }
+  15% {
+    opacity: 0.4;
+    transform: scaleX(1);
+  }
+  24% {
     opacity: 0.9;
     transform: scaleX(1.01);
   }
-  42% {
+  40% {
     opacity: 0.26;
-    transform: scaleX(0.97);
+    transform: scaleX(0.99);
   }
 }
 
+/* 只有起止两帧：往返全靠 alternate 倒放时间函数。
+   出发时光团压到 0.4 宽、贴住拇指，一路冲出可见边界（-160%：亮心整个出画，只剩
+   渐隐的尾端在边上）；回程反着来，从边界外慢慢探回来。 */
 @keyframes dts-fx-wave {
-  0% {
-    opacity: 0;
-    transform: translateX(0) scaleX(0.6);
+  from {
+    opacity: 1;
+    transform: translateX(0) scaleX(0.4);
   }
-  8% {
-    opacity: 0.95;
-    transform: translateX(-18%) scaleX(0.86);
-  }
-  38% {
-    opacity: 0.4;
-    transform: translateX(-110%) scaleX(1.15);
-  }
-  56%,
-  100% {
-    opacity: 0;
-    transform: translateX(-160%) scaleX(1.25);
+  to {
+    opacity: 0.42;
+    transform: translateX(-160%) scaleX(1.08);
   }
 }
 
@@ -697,6 +852,31 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   }
 }
 
+/* 渐变：一张两倍宽的色带，动画只挪 background-position——挪半张就无缝接回开头。
+   色标留空时 JS 换成配色的三枚变量（填充 / 强调 / 点缀），默认就跟着当前配色走；
+   方向正反只翻转 animation-direction，关键帧不动。 */
+.dts-flow[data-dts-fx="gradient"] .dts-fxGradient {
+  display: block;
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: 200% 100%;
+  animation: dts-fx-gradient 7s linear infinite;
+}
+
+.dts-flow[data-dts-fx="gradient"][data-dts-grad="reverse"] .dts-fxGradient {
+  animation-direction: reverse;
+}
+
+@keyframes dts-fx-gradient {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 100% 0;
+  }
+}
+
 /* 细轨降级：2px 的填充只留一道扫过的流光（画布与字符都放不下）。 */
 .dts-flow[data-dts-flow="thin"] .dts-pixelFlow,
 .dts-flow[data-dts-flow="thin"] .dts-fxGlyph,
@@ -709,11 +889,12 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   display: block;
 }
 
-/* 不画自带流光的样式（流光场 / 心跳 / 字符）把扫光层收起来；细轨那条规则
-   写在后面，优先级相同时由顺序决定，所以细轨仍然有扫光。 */
+/* 不画自带流光的样式（流光场 / 心跳 / 字符 / 渐变）把扫光层收起来；细轨那条规则
+   写在后面，优先级相同时由顺序决定，所以细轨仍然有扫光——渐变除外，它自带颜色。 */
 .dts-flow[data-dts-fx="flow"] .dts-flowSheen,
 .dts-flow[data-dts-fx="pulse"] .dts-flowSheen,
-.dts-flow[data-dts-fx="glyph"] .dts-flowSheen {
+.dts-flow[data-dts-fx="glyph"] .dts-flowSheen,
+.dts-flow[data-dts-fx="gradient"] .dts-flowSheen {
   display: none;
 }
 
@@ -815,10 +996,11 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
     opacity: 0;
   }
 
-  /* 四个特效都停在看得见的一帧上：不动的光比没有光更像「关掉了动效」。
+  /* 其余特效都停在看得见的一帧上：不动的光比没有光更像「关掉了动效」。
      流光场的画布由 JS 看 reduced 只画一帧，这里不用管。 */
   .dts-fxGlowSoft,
   .dts-fxGlowStrong,
+  .dts-fxGradient,
   .dts-fxGlyphRow {
     animation: none;
   }
@@ -1316,6 +1498,19 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
 .dts-colorClear:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
+}
+
+/* 渐变色标：一排色块，每个色块旁边一个移除键；没有色标时只显示「跟随配色」。 */
+.dts-gradStop {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dts-gradFollow {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 24px;
 }
 
 .dts-colorsDetails {

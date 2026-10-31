@@ -1,5 +1,5 @@
 /**
- * dsh-yet-another-slider-thingy —— 浏览器端 bundle（v0.6.1）
+ * dsh-yet-another-slider-thingy —— 浏览器端 bundle（v0.7.0）
  *
  * 把 DSH composer 的模型位（`conversation.input.model`）换成「模型行 + 思考强度滑条」：
  * 模型行照旧下钻到分组列表，推理强度是带卡位的滑条（逐档 / 平滑两种拖动方式）。面板材质直接用宿主
@@ -24,6 +24,8 @@ const SMOOTH_KEY = PLUGIN_ID + ":smooth";
 const EFFECTS_KEY = PLUGIN_ID + ":effects";
 const FX_OPTS_KEY = PLUGIN_ID + ":fx";
 const LABELS_KEY = PLUGIN_ID + ":labels";
+const KNOB_SHAPES_KEY = PLUGIN_ID + ":knobs";
+const KNOB_SIZE_KEY = PLUGIN_ID + ":knobSize";
 const CSS = __CSS__;
 
 /* 像素流光：src/pixel-flow.js，构建时内联到这里（预览页也直接引同一份文件）。
@@ -82,10 +84,34 @@ const SLIDER_STYLES = [
 ];
 const DEFAULT_SLIDER_STYLE = "compact";
 /**
- * 特效是四个样式加「关」：流光场 / 密度粒子 / 心跳 / 字符点阵。
+ * 旋钮形状是外观之外的一层：紧凑默认圆角方（现在渲染出来的样子），胶囊默认圆
+ * （现在这版用 SVG 画的白圆），块面只有圆角方。
+ */
+const KNOB_SHAPES = [
+  { id: "square", label: "圆角方" },
+  { id: "circle", label: "圆" },
+];
+const KNOB_STYLE_SHAPES = {
+  compact: ["square", "circle"],
+  claude: ["square"],
+  codex: ["circle", "square"],
+};
+const DEFAULT_KNOB_SHAPES = { compact: "square", claude: "square", codex: "circle" };
+/**
+ * 旋钮大小：三套外观共用一个倍率。只缩拇指，轨道高度与档位间距不变；
+ * 标准 / 大两档都不会把菜单撑高。旧版存的 sm 没有对应档，读回按标准处理。
+ */
+const KNOB_SIZES = [
+  { id: "md", label: "标准", scale: 1 },
+  { id: "lg", label: "大", scale: 1.2 },
+];
+const DEFAULT_KNOB_SIZE = "md";
+/**
+ * 特效是五个样式加「关」：流光场 / 密度粒子 / 心跳 / 字符点阵 / 渐变。
  * auto 跟随外观（只有胶囊那套有），其余直接就是选中的样式。
- * 强度不在这里定：座位把档位换算成 0–1 的 --dts-power，四个样式共用一根值。
- * 特效层住在填充里，所以紧凑的 2px 细轨会自动降级成「只有流光」。
+ * 强度不在这里定：座位把档位换算成 0–1 的 --dts-power，几个样式共用一根值。
+ * 特效层住在填充里，所以紧凑的 2px 细轨会自动降级成「只有流光」——
+ * 渐变例外：它只是一层颜色，细轨照样画。
  */
 const EFFECT_MODES = [
   { id: "off", label: "关" },
@@ -94,24 +120,50 @@ const EFFECT_MODES = [
   { id: "dust", label: "密度粒子" },
   { id: "pulse", label: "心跳" },
   { id: "glyph", label: "字符点阵" },
+  { id: "gradient", label: "渐变" },
 ];
-const EFFECT_KINDS = ["flow", "dust", "pulse", "glyph"];
+const EFFECT_KINDS = ["flow", "dust", "pulse", "glyph", "gradient"];
 const DEFAULT_EFFECTS = "auto";
 /**
- * 特效自己的两个设置：
- *   maxOnly 只在最高档出现（关 = 全程，功率跟档位走）；
- *   speeds  每个样式各一档速度倍率，存 0.7 / 1 / 1.4。
+ * 特效自己的设置：
+ *   maxOnly     只在最高档出现（关 = 全程，功率跟档位走）；
+ *   trail       密度粒子身后是否拖尾（只影响 dust，默认开）；
+ *   trailLength 尾迹长度：短 / 中 / 长（默认短，倍数写在 CSS 的 --dts-tail-scale）；
+ *   speeds      每个样式各一档速度倍率，存 0.7 / 1 / 1.4；
+ *   gradient    渐变的色标与方向（色标留空 = 跟随配色）。
  */
 const SPEED_STEPS = [
   { id: 0.7, label: "慢" },
   { id: 1, label: "标准" },
   { id: 1.4, label: "快" },
 ];
+const TRAIL_LENGTHS = [
+  { id: "short", label: "短" },
+  { id: "medium", label: "中" },
+  { id: "long", label: "长" },
+];
+const DEFAULT_TRAIL_LENGTH = "short";
 const DEFAULT_FX = {
   maxOnly: false,
-  speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 },
+  trail: true,
+  trailLength: DEFAULT_TRAIL_LENGTH,
+  speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1, gradient: 1 },
+  gradient: { colors: [], reverse: false },
 };
 const DEFAULT_FX_GETTER = () => DEFAULT_FX;
+/**
+ * 渐变特效：色标留空就按当前配色取三枚（填充 → 强调 → 点缀）。
+ * 紧凑那套没有自己的色板变量，所以每枚都带宿主主色的兜底。
+ * 自定义至少两枚；上限按设置行放得下算。
+ */
+const GRADIENT_PALETTE_COLORS = [
+  "var(--dts-fill-color, var(--dsw-alias-state-business-primary))",
+  "var(--dts-accent-color, var(--dsw-alias-state-business-primary))",
+  "var(--dts-particle-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary)))",
+];
+const GRADIENT_SEED_COLORS = ["#7c63f5", "#2dc9ff", "#ff9bd7"];
+const GRADIENT_MIN_STOPS = 2;
+const GRADIENT_MAX_STOPS = 6;
 /** 字符点阵场里跑的字：渲染时首尾各写一遍，translateX(-50%) 才接得回开头。 */
 const GLYPH_TEXT = "01+#×/=:·".repeat(9);
 /**
@@ -146,15 +198,83 @@ const SLIDER_DRAGS = [
 ];
 const DEFAULT_SLIDER_DRAG = "step";
 /**
- * 交互骨架：pad 是拇指圆心到轨道两端的距离（= 拇指半径），
+ * 交互骨架：pad 是拇指圆心到轨道两端的距离，
  * thumbW / thumbH 是拇指盒，trackH 是轨道的可点击高度。
  * 指针命中和所有 inline left / fill width 都从这里取，CSS 只负责材质。
+ *
+ * 紧凑的圆角方沿用旧版 12px 填充 + 外扩 2px 环（pad 仍是 6）；新增的圆钮
+ * 用一个 16px 盒子把 2px 环画在里面，外径同样是 16，位置不跳。
  */
 const SLIDER_GEOMETRY = {
-  compact: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 },
-  claude: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 },
-  codex: { pad: 14, thumbW: 28, thumbH: 28, trackH: 28 },
+  compact: {
+    square: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 },
+    circle: { pad: 6, thumbW: 16, thumbH: 16, trackH: 20 },
+  },
+  claude: {
+    square: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 },
+  },
+  codex: {
+    /* 圆的拇指比轨道高 8px（上下各凸 4px）：凸得够多，圆才读得出来。
+       圆角方沿用出错那版的 32px，轨道两端 12px（本机钳成 6px）。 */
+    circle: { pad: 16, thumbW: 32, thumbH: 32, trackH: 28 },
+    square: { pad: 16, thumbW: 32, thumbH: 32, trackH: 28 },
+  },
 };
+/**
+ * 矢量拇指只给「圆」用：部分渲染环境会把 border-radius 钳到盒子的一小部分
+ * （实测 50% / 16px / 999px 在 32px 方块上都只画出约 8px 的圆角），圆钮会变成
+ * 圆角方。圆角方则故意保留旧版 CSS，让那台机器继续给出它原来的圆角。
+ * viewBox 直接按 1 单位 = 1 CSS px 定尺寸，stroke 也随拇指一起缩放。
+ */
+const THUMB_DISCS = {
+  compact: {
+    circle: {
+      viewBox: "0 0 16 16",
+      strokeWidth: 2,
+      shape: { type: "circle", cx: 8, cy: 8, r: 7 },
+    },
+  },
+  codex: {
+    circle: {
+      viewBox: "0 0 32 32",
+      strokeWidth: 1.5,
+      shape: { type: "circle", cx: 16, cy: 16, r: 15.25 },
+    },
+  },
+};
+const DEFAULT_KNOB_SHAPES_GETTER = () => DEFAULT_KNOB_SHAPES;
+const DEFAULT_KNOB_SIZE_GETTER = () => DEFAULT_KNOB_SIZE;
+function normalizeKnobShape(styleId, value) {
+  const shapes = KNOB_STYLE_SHAPES[styleId] ?? KNOB_STYLE_SHAPES[DEFAULT_SLIDER_STYLE];
+  if (shapes.includes(value)) return value;
+  return DEFAULT_KNOB_SHAPES[styleId] ?? "square";
+}
+function normalizeKnobSize(value) {
+  return KNOB_SIZES.some((entry) => entry.id === value) ? value : DEFAULT_KNOB_SIZE;
+}
+function normalizeKnobShapes(value) {
+  const source = value !== null && typeof value === "object" ? value : {};
+  const next = { ...DEFAULT_KNOB_SHAPES };
+  for (const style of SLIDER_STYLES) {
+    const shapes = KNOB_STYLE_SHAPES[style.id] ?? [];
+    if (shapes.includes(source[style.id])) next[style.id] = source[style.id];
+  }
+  return next;
+}
+/** 三套外观共用的旋钮骨架：形状决定基础尺寸，大小项再乘一个倍率。 */
+function sliderGeometry(styleId, shape, size) {
+  const style = SLIDER_GEOMETRY[styleId] ?? SLIDER_GEOMETRY[DEFAULT_SLIDER_STYLE];
+  const base = style[normalizeKnobShape(styleId, shape)] ?? style.square;
+  const entry = KNOB_SIZES.find((item) => item.id === normalizeKnobSize(size));
+  const scale = entry === undefined ? 1 : entry.scale;
+  if (scale === 1) return base;
+  return {
+    pad: Math.round(base.pad * scale),
+    thumbW: Math.round(base.thumbW * scale),
+    thumbH: Math.round(base.thumbH * scale),
+    trackH: base.trackH,
+  };
+}
 const DEFAULT_STYLE_GETTER = () => DEFAULT_SLIDER_STYLE;
 const DEFAULT_EFFECTS_GETTER = () => DEFAULT_EFFECTS;
 const DEFAULT_LABELS_GETTER = () => DEFAULT_LABELS;
@@ -163,17 +283,33 @@ const NOOP_SUBSCRIBE = () => () => {};
 
 /** 等 `remote` / `remote.session` 的看门狗：老宿主没有这两个服务时退回旧路径。 */
 const INJECT_FALLBACK_MS = 3000;
-/** 特效里横穿填充的小点（密度粒子）；top / duration / delay 都是视觉参数。 */
+/**
+ * 特效里横穿填充的小点（密度粒子）；top / duration / delay 都是视觉参数。
+ * depth 是远近视差（0 最远、1 最近）：近的大而亮、跑得快、尾巴长，远的小而淡、
+ * 拖得慢；duration 已经按 depth 排好，不在 CSS 里另算倍率。第 i 颗在功率越过
+ * i/8 后出现，所以低档是一两颗，满档是一整条有纵深感的流。
+ */
 const FLOW_PARTICLES = [
-  { top: 4, duration: 3.2, delay: 0 },
-  { top: 9, duration: 3.8, delay: -0.7 },
-  { top: 14, duration: 2.9, delay: -1.4 },
-  { top: 19, duration: 3.5, delay: -2.1 },
-  { top: 6, duration: 4.1, delay: -0.3 },
-  { top: 11, duration: 3.0, delay: -1.8 },
-  { top: 16, duration: 3.6, delay: -1.1 },
-  { top: 21, duration: 3.3, delay: -2.5 },
+  { top: 4, duration: 3.0, delay: 0, depth: 0.9 },
+  { top: 9, duration: 4.3, delay: -0.7, depth: 0.2 },
+  { top: 14, duration: 3.6, delay: -1.4, depth: 0.55 },
+  { top: 19, duration: 4.6, delay: -2.1, depth: 0.1 },
+  { top: 6, duration: 3.9, delay: -0.3, depth: 0.35 },
+  { top: 11, duration: 3.2, delay: -1.8, depth: 0.75 },
+  { top: 16, duration: 2.8, delay: -1.1, depth: 1 },
+  { top: 21, duration: 3.4, delay: -2.5, depth: 0.65 },
 ];
+
+/** depth → 尺寸 / 透明度 / 尾长：近的大而亮、尾巴长，远的反过来。
+    尺寸是直径：按实机反馈整体缩到原来的一半（2.2–4.6px → 1.1–2.3px）。 */
+function dustVars(depth) {
+  const z = Math.max(0, Math.min(1, Number(depth) || 0));
+  return {
+    "--dts-dust-size": `${(1.1 + 1.2 * z).toFixed(2)}px`,
+    "--dts-dust-alpha": (0.45 + 0.55 * z).toFixed(2),
+    "--dts-dust-tail": `${(7 + 16 * z).toFixed(1)}px`,
+  };
+}
 
 const COLORS_KEY = PLUGIN_ID + ":colors";
 const PALETTES_KEY = PLUGIN_ID + ":palettes";
@@ -187,6 +323,8 @@ const STORAGE_KEY_SUFFIXES = [
   "effects",
   "fx",
   "labels",
+  "knobs",
+  "knobSize",
   "colors",
   "palettes",
   "palette",
@@ -560,6 +698,18 @@ function registerThinkingSliderSeat(ctx, report, services) {
               typeof services.labels?.subscribe === "function"
                 ? services.labels.subscribe(listener)
                 : NOOP_SUBSCRIBE(),
+            getKnobShapes: () =>
+              typeof services.knobShapes?.get === "function" ? services.knobShapes.get() : DEFAULT_KNOB_SHAPES,
+            subscribeKnobShapes: (listener) =>
+              typeof services.knobShapes?.subscribe === "function"
+                ? services.knobShapes.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
+            getKnobSize: () =>
+              typeof services.knobSize?.get === "function" ? services.knobSize.get() : DEFAULT_KNOB_SIZE,
+            subscribeKnobSize: (listener) =>
+              typeof services.knobSize?.subscribe === "function"
+                ? services.knobSize.subscribe(listener)
+                : NOOP_SUBSCRIBE(),
           };
         },
       },
@@ -675,6 +825,10 @@ function createThinkingSliderSeat(primitives, report) {
       subscribeFx,
       getLabels,
       subscribeLabels,
+      getKnobShapes,
+      subscribeKnobShapes,
+      getKnobSize,
+      subscribeKnobSize,
     } = props;
 
     const subscribe = React.useCallback((listener) => directory.subscribe(listener), [directory]);
@@ -712,12 +866,28 @@ function createThinkingSliderSeat(primitives, report) {
       typeof subscribeFx === "function" ? subscribeFx : NOOP_SUBSCRIBE,
       typeof getFx === "function" ? getFx : DEFAULT_FX_GETTER,
     );
+    const knobShapes = React.useSyncExternalStore(
+      typeof subscribeKnobShapes === "function" ? subscribeKnobShapes : NOOP_SUBSCRIBE,
+      typeof getKnobShapes === "function" ? getKnobShapes : DEFAULT_KNOB_SHAPES_GETTER,
+    );
+    const knobSize = React.useSyncExternalStore(
+      typeof subscribeKnobSize === "function" ? subscribeKnobSize : NOOP_SUBSCRIBE,
+      typeof getKnobSize === "function" ? getKnobSize : DEFAULT_KNOB_SIZE_GETTER,
+    );
     const reduced = useReducedMotion();
-    const geometry = SLIDER_GEOMETRY[styleId] ?? SLIDER_GEOMETRY[DEFAULT_SLIDER_STYLE];
+    const knobShape = normalizeKnobShape(styleId, knobShapes?.[styleId]);
+    const knobSizeId = normalizeKnobSize(knobSize);
+    const geometry = sliderGeometry(styleId, knobShape, knobSizeId);
+    const thumbDisc = THUMB_DISCS[styleId]?.[knobShape];
     /* 两轴先解析成具体形态：座位里所有分支只看 effectsKind / labelForm。 */
     const effectsKind = resolveEffects(normalizeEffects(effectsMode), styleId);
+    const fxNormalized = normalizeFx(fxOptions);
     const fxMaxOnly = fxOptions.maxOnly === true;
-    const fxSpeed = normalizeFx(fxOptions).speeds[effectsKind] ?? 1;
+    const fxSpeed = fxNormalized.speeds[effectsKind] ?? 1;
+    /* 尾迹只对密度粒子有意义；别的特效读到的值不落到 DOM 上。 */
+    const fxTrail = effectsKind === "dust" && fxNormalized.trail !== false;
+    const fxTrailLength = fxNormalized.trailLength;
+    const fxGradient = fxNormalized.gradient;
     const labelForm = resolveLabels(normalizeLabels(labelMode), styleId);
     const thinFlow = flowIsThin(geometry);
     /* 配色是独立一层：自动 = 不覆盖，交给外观 CSS；选中配色则按当前深浅取值。 */
@@ -847,6 +1017,8 @@ function createThinkingSliderSeat(primitives, report) {
     const flowStyle = { "--dts-power": fxPower };
     /* 「只在最高档」时 0 就是彻底看不见：把最低档那点底噪也关掉。 */
     if (fxMaxOnly) flowStyle["--dts-fx-floor"] = 0;
+    /* 渐变层：色标在这里拼成一条 background-image；空色标会落成配色的三枚变量。 */
+    const gradientStyle = { backgroundImage: gradientImage(fxGradient) };
     /* 速度跟档位走：改 animation-duration 会让在跑的动画跳一格，改播放速率不会。
        菜单每次打开都会重建特效层、动画从 0 开始，所以 open 也要在依赖里。 */
     React.useEffect(() => {
@@ -1297,14 +1469,23 @@ function createThinkingSliderSeat(primitives, report) {
                             "data-dts-fx": effectsKind,
                             "data-dts-flow": thinFlow ? "thin" : undefined,
                             "data-dts-flow-follow": dragRatio !== null ? "" : undefined,
+                            "data-dts-trail": fxTrail ? "" : undefined,
+                            "data-dts-trail-length": fxTrail ? fxTrailLength : undefined,
+                            "data-dts-grad":
+                              effectsKind === "gradient" && fxGradient.reverse ? "reverse" : undefined,
                             style: flowStyle,
                           },
-                          /* 四个样式把各自的层都放在这里，CSS 按 data-dts-fx 只留一个；
+                          /* 五个样式把各自的层都放在这里，CSS 按 data-dts-fx 只留一个；
                              这样切样式不重建 DOM，动画也不会从头开始。 */
                           h(FlowCanvas, { power: fxPower, speed: fxSpeed, reduced }),
                           h("span", { className: "dts-flowSheen" }),
                           h("span", { className: "dts-fxGlowSoft" }),
                           h("span", { className: "dts-fxGlowStrong" }),
+                          h("span", {
+                            className: "dts-fxGradient",
+                            "aria-hidden": "true",
+                            style: gradientStyle,
+                          }),
                           h(
                             "span",
                             { className: "dts-fxGlyph" },
@@ -1323,6 +1504,8 @@ function createThinkingSliderSeat(primitives, report) {
                                   "--dts-flow-delay": `${particle.delay}s`,
                                   /* 密度粒子用它决定「这颗要不要亮」：第 i 颗在功率越过 i/8 后出现。 */
                                   "--dts-fx-i": String(index / FLOW_PARTICLES.length),
+                                  /* 远近：尺寸 / 透明度 / 尾长都从这里派生。 */
+                                  ...dustVars(particle.depth),
                                 },
                               },
                               h("i", {}),
@@ -1339,11 +1522,31 @@ function createThinkingSliderSeat(primitives, report) {
                       style: { left: sliderPosition(index / Math.max(1, efforts.length - 1)) },
                     }),
                   ),
-                  h("span", {
-                    className: "dts-thumb",
-                    "aria-hidden": "true",
-                    style: { left: sliderPosition(ratio) },
-                  }),
+                  h(
+                    "span",
+                    {
+                      className: "dts-thumb" + (thumbDisc === undefined ? "" : " dts-thumb--disc"),
+                      "aria-hidden": "true",
+                      style: { left: sliderPosition(ratio) },
+                    },
+                    /* 只有「圆」走矢量：形状、描边宽度和 viewBox 来自 THUMB_DISCS。
+                       圆角方保留旧版 CSS（紧凑跟块面共用基础样式，胶囊由
+                       [data-dts-knob="square"] 那组规则接管），刻意保留本机原来的圆角。 */
+                    thumbDisc === undefined
+                      ? null
+                      : h(
+                          "svg",
+                          { className: "dts-thumbDisc", viewBox: thumbDisc.viewBox, "aria-hidden": "true" },
+                          h("circle", {
+                            cx: thumbDisc.shape.cx,
+                            cy: thumbDisc.shape.cy,
+                            r: thumbDisc.shape.r,
+                            fill: "var(--dts-thumb-color, var(--dsw-alias-bg-base))",
+                            stroke: "var(--dts-thumb-ring-color)",
+                            strokeWidth: thumbDisc.strokeWidth,
+                          }),
+                        ),
+                  ),
                 ),
                 labelForm === "none"
                   ? null
@@ -1576,6 +1779,7 @@ function createThinkingSliderSeat(primitives, report) {
               id: `${id}-menu`,
               className: "dts-menu",
               "data-dts-style": styleId,
+              "data-dts-knob": knobShape,
               style: { ...(menuPos ?? MEASURE_STYLE), ...colorVars },
               role: pane === "model" ? "group" : "menu",
               "aria-label": TEXT.ariaMenu,
@@ -1589,7 +1793,7 @@ function createThinkingSliderSeat(primitives, report) {
 
     return h(
       "div",
-      { ref: rootRef, className: "dts-root", "data-dts-style": styleId, onKeyDown: onRootKeyDown },
+      { ref: rootRef, className: "dts-root", "data-dts-style": styleId, "data-dts-knob": knobShape, onKeyDown: onRootKeyDown },
       h(
         "button",
         {
@@ -1728,11 +1932,54 @@ function rememberEffects(value) {
   }
 }
 
-/** 特效自己的设置（只在最高档 / 每个样式的速度）；坏值一律回默认，不半信半疑。 */
+/** 渐变色标：只收 #rrggbb；留空或只填一枚都当「跟随配色」，方向单独归一。 */
+function normalizeGradient(value) {
+  const source = value !== null && typeof value === "object" ? value : {};
+  const colors = Array.isArray(source.colors)
+    ? source.colors
+        .filter((color) => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color))
+        .slice(0, GRADIENT_MAX_STOPS)
+    : [];
+  return {
+    colors: colors.length >= GRADIENT_MIN_STOPS ? colors : [],
+    reverse: source.reverse === true,
+  };
+}
+
+/**
+ * 把色标铺成一张两倍宽的渐变，动画只挪 background-position：
+ * 左右两半内容完全一样，挪半张就无缝接回开头。
+ * 每半张把色标走一遍、末尾补回第一枚，所以整张图的 0% / 100% 同色。
+ * 色标为空时用配色的三枚变量（填充 / 强调 / 点缀）。
+ */
+function gradientImage(gradient) {
+  const colors =
+    gradient.colors.length >= GRADIENT_MIN_STOPS ? gradient.colors : GRADIENT_PALETTE_COLORS;
+  const tile = [...colors, colors[0]];
+  const gaps = 2 * (tile.length - 1);
+  const stops = [];
+  for (let copy = 0; copy < 2; copy += 1) {
+    for (let index = 0; index < tile.length; index += 1) {
+      const position = (copy * (tile.length - 1) + index) / gaps;
+      stops.push(`${tile[index]} ${(position * 100).toFixed(3)}%`);
+    }
+  }
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
+/** 特效自己的设置（只在最高档 / 尾迹 / 尾迹长度 / 每个样式的速度 / 渐变）；坏值一律回默认，不半信半疑。 */
 function normalizeFx(value) {
   const source = value !== null && typeof value === "object" ? value : {};
   const speeds = source.speeds !== null && typeof source.speeds === "object" ? source.speeds : {};
-  const next = { maxOnly: source.maxOnly === true, speeds: {} };
+  const next = {
+    maxOnly: source.maxOnly === true,
+    trail: source.trail !== false,
+    trailLength: TRAIL_LENGTHS.some((entry) => entry.id === source.trailLength)
+      ? source.trailLength
+      : DEFAULT_TRAIL_LENGTH,
+    speeds: {},
+    gradient: normalizeGradient(source.gradient),
+  };
   for (const kind of EFFECT_KINDS) {
     const speed = Number(speeds[kind]);
     next.speeds[kind] = SPEED_STEPS.some((step) => step.id === speed) ? speed : 1;
@@ -1767,6 +2014,38 @@ function storedLabels() {
 function rememberLabels(value) {
   try {
     window.localStorage.setItem(LABELS_KEY, normalizeLabels(value));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+function storedKnobShapes() {
+  try {
+    return normalizeKnobShapes(JSON.parse(window.localStorage.getItem(KNOB_SHAPES_KEY) || "null"));
+  } catch {
+    return normalizeKnobShapes(null);
+  }
+}
+
+function rememberKnobShapes(value) {
+  try {
+    window.localStorage.setItem(KNOB_SHAPES_KEY, JSON.stringify(normalizeKnobShapes(value)));
+  } catch {
+    /* 存不了就只在本次运行里生效 */
+  }
+}
+
+function storedKnobSize() {
+  try {
+    return normalizeKnobSize(window.localStorage.getItem(KNOB_SIZE_KEY));
+  } catch {
+    return DEFAULT_KNOB_SIZE;
+  }
+}
+
+function rememberKnobSize(value) {
+  try {
+    window.localStorage.setItem(KNOB_SIZE_KEY, normalizeKnobSize(value));
   } catch {
     /* 存不了就只在本次运行里生效 */
   }
@@ -2032,6 +2311,10 @@ function settingsGroup(label) {
 }
 
 function SettingsPanel(props) {
+  const readKnobShapes = () =>
+    typeof props.getKnobShapes === "function" ? props.getKnobShapes() : DEFAULT_KNOB_SHAPES;
+  const readKnobSize = () =>
+    typeof props.getKnobSize === "function" ? props.getKnobSize() : DEFAULT_KNOB_SIZE;
   const [state, setState] = React.useState(() => ({
     enabled: props.getEnabled(),
     status: props.getStatus(),
@@ -2040,6 +2323,8 @@ function SettingsPanel(props) {
     effects: props.getEffects(),
     fx: props.getFx(),
     labels: props.getLabels(),
+    knobs: readKnobShapes(),
+    knobSize: readKnobSize(),
     palette: props.getPalette(),
     palettes: props.getPalettes(),
     dark: props.getDark(),
@@ -2054,6 +2339,8 @@ function SettingsPanel(props) {
         effects: props.getEffects(),
         fx: props.getFx(),
         labels: props.getLabels(),
+        knobs: typeof props.getKnobShapes === "function" ? props.getKnobShapes() : DEFAULT_KNOB_SHAPES,
+        knobSize: typeof props.getKnobSize === "function" ? props.getKnobSize() : DEFAULT_KNOB_SIZE,
         palette: props.getPalette(),
         palettes: props.getPalettes(),
         dark: props.getDark(),
@@ -2072,9 +2359,20 @@ function SettingsPanel(props) {
   const labelMode = normalizeLabels(state.labels);
   const effectsKind = resolveEffects(effectsMode, style);
   const fxOptions = normalizeFx(state.fx);
+  const fxTrail = fxOptions.trail !== false;
+  const fxTrailLength = fxOptions.trailLength;
+  const fxGradient = fxOptions.gradient;
+  const trailLengthHint =
+    fxTrailLength === "long" ? "拉成一条长流" : fxTrailLength === "medium" ? "拖出一段尾巴" : "点到为止的短尾";
   const fxKindLabel = EFFECT_MODES.find((entry) => entry.id === effectsKind)?.label ?? "当前特效";
   const labelForm = resolveLabels(labelMode, style);
-  const thin = flowIsThin(SLIDER_GEOMETRY[style]);
+  const knobShapes =
+    state.knobs !== null && typeof state.knobs === "object" ? state.knobs : DEFAULT_KNOB_SHAPES;
+  const knobShape = normalizeKnobShape(style, knobShapes[style]);
+  const knobSize = normalizeKnobSize(state.knobSize);
+  const shapeOptions = KNOB_STYLE_SHAPES[style] ?? [];
+  const geometry = sliderGeometry(style, knobShape, knobSize);
+  const thin = flowIsThin(geometry);
   const paletteId = normalizePaletteId(state.palette);
   const palettes = Array.isArray(state.palettes) ? state.palettes : EMPTY_PALETTES;
   const activePalette = paletteId === AUTO_PALETTE ? undefined : findPalette(palettes, paletteId);
@@ -2087,7 +2385,9 @@ function SettingsPanel(props) {
       : effectsKind === null
         ? "填充里不画特效"
         : thin
-          ? "紧凑的细轨只走一道流光，放不下粒子与字符"
+          ? effectsKind === "gradient"
+            ? "细轨也有：色带会铺满这条 2px 的填充"
+            : "紧凑的细轨只走一道流光，放不下粒子与字符"
           : "档位越高越亮、越鲜艳、越快";
   const labelsHint =
     labelMode === "auto"
@@ -2151,6 +2451,47 @@ function SettingsPanel(props) {
       ),
       "只改形状与材质，颜色看下面的配色",
     ),
+    shapeOptions.length > 1
+      ? settingsRow(
+          "拇指",
+          shapeOptions.map((id) => {
+            const entry = KNOB_SHAPES.find((shape) => shape.id === id) ?? { id, label: id };
+            return h(
+              "button",
+              {
+                key: id,
+                type: "button",
+                className: "dts-chip" + (knobShape === id ? " dts-chip--on" : ""),
+                "aria-pressed": knobShape === id,
+                onClick: () => props.selectKnobShape(style, id),
+              },
+              entry.label,
+            );
+          }),
+          style === "codex" && knobShape === "square"
+            ? "圆角方：轨道两端也收成圆角"
+            : knobShape === "circle"
+              ? "圆的拇指是矢量画的，不吃圆角上限"
+              : "只改拇指形状，不碰轨道",
+        )
+      : null,
+    settingsRow(
+      "大小",
+      KNOB_SIZES.map((entry) =>
+        h(
+          "button",
+          {
+            key: entry.id,
+            type: "button",
+            className: "dts-chip" + (knobSize === entry.id ? " dts-chip--on" : ""),
+            "aria-pressed": knobSize === entry.id,
+            onClick: () => props.selectKnobSize(entry.id),
+          },
+          entry.label,
+        ),
+      ),
+      "所有外观通用；只改拇指，轨道高度不变",
+    ),
     settingsRow(
       "刻度",
       LABEL_FORMS.map((entry) =>
@@ -2203,7 +2544,7 @@ function SettingsPanel(props) {
       ),
       effectsHint,
     ),
-    /* 下面两行只在真有特效时出现：关掉 / 这套外观没有特效时留着没意义。 */
+    /* 下面几行只在真有特效时出现：关掉 / 这套外观没有特效时留着没意义。 */
     effectsKind === null
       ? null
       : settingsRow(
@@ -2226,6 +2567,144 @@ function SettingsPanel(props) {
           ),
           fxOptions.maxOnly ? "只有最高档才画，离开就淡出" : "档位越高越亮、越鲜艳、越快",
         ),
+    /* 渐变的形状与方向：色标留空时按配色画，填了至少两枚才覆盖。 */
+    effectsKind === "gradient"
+      ? settingsRow(
+          "方向",
+          [
+            ["forward", "正"],
+            ["reverse", "反"],
+          ].map(([id, label]) =>
+            h(
+              "button",
+              {
+                key: id,
+                type: "button",
+                className: "dts-chip" + (fxGradient.reverse === (id === "reverse") ? " dts-chip--on" : ""),
+                "aria-pressed": fxGradient.reverse === (id === "reverse"),
+                onClick: () => props.selectFxGradientReverse(id === "reverse"),
+              },
+              label,
+            ),
+          ),
+          fxGradient.reverse ? "色带往右流" : "色带往左流",
+        )
+      : null,
+    effectsKind === "gradient"
+      ? settingsRow(
+          "色标",
+          fxGradient.colors.length === 0
+            ? [
+                h("span", { key: "follow", className: "dts-gradFollow" }, "跟随配色"),
+                h(
+                  "button",
+                  {
+                    key: "custom",
+                    type: "button",
+                    className: "dts-chip",
+                    onClick: () => props.selectFxGradientCustom(),
+                  },
+                  "自定义",
+                ),
+              ]
+            : [
+                ...fxGradient.colors.map((color, index) =>
+                  h(
+                    "span",
+                    { key: `stop-${index}`, className: "dts-gradStop" },
+                    h("input", {
+                      type: "color",
+                      className: "dts-colorInput",
+                      value: color,
+                      "aria-label": `色标 ${index + 1}`,
+                      onChange: (event) => props.selectFxGradientColor(index, event.target.value),
+                    }),
+                    fxGradient.colors.length > GRADIENT_MIN_STOPS
+                      ? h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "dts-colorClear",
+                            title: "移除这个色标",
+                            "aria-label": `移除色标 ${index + 1}`,
+                            onClick: () => props.selectFxGradientRemove(index),
+                          },
+                          "×",
+                        )
+                      : null,
+                  ),
+                ),
+                fxGradient.colors.length < GRADIENT_MAX_STOPS
+                  ? h(
+                      "button",
+                      {
+                        key: "add",
+                        type: "button",
+                        className: "dts-chip dts-chip--add",
+                        onClick: () => props.selectFxGradientAdd(),
+                      },
+                      "＋ 色标",
+                    )
+                  : null,
+                h(
+                  "button",
+                  {
+                    key: "follow",
+                    type: "button",
+                    className: "dts-colorReset",
+                    onClick: () => props.selectFxGradientFollow(),
+                  },
+                  "跟随配色",
+                ),
+              ],
+          fxGradient.colors.length === 0
+            ? "不填颜色就按当前配色：填充 → 强调 → 点缀"
+            : "至少两个；色标按顺序均分整条填充",
+        )
+      : null,
+    /* 尾迹只给密度粒子：别的特效没有「粒子」这个概念，留着这一行只会误导。 */
+    effectsKind === "dust"
+      ? settingsRow(
+          "尾迹",
+          [
+            ["off", "关"],
+            ["on", "开"],
+          ].map(([id, label]) =>
+            h(
+              "button",
+              {
+                key: id,
+                type: "button",
+                className: "dts-chip" + (fxTrail === (id === "on") ? " dts-chip--on" : ""),
+                "aria-pressed": fxTrail === (id === "on"),
+                onClick: () => props.selectFxTrail(id === "on"),
+              },
+              label,
+            ),
+          ),
+          fxTrail ? "粒子身后拖一条淡尾，越往高档位越长" : "只留粒子本身，身后不留尾",
+        )
+      : null,
+    /* 长度只在尾迹开着时才有意义：关掉后这条跟着收起，不再占一行。 */
+    effectsKind === "dust" && fxTrail
+      ? settingsRow(
+          "长度",
+          TRAIL_LENGTHS.map((entry) =>
+            h(
+              "button",
+              {
+                key: entry.id,
+                type: "button",
+                className: "dts-chip" + (fxTrailLength === entry.id ? " dts-chip--on" : ""),
+                "aria-pressed": fxTrailLength === entry.id,
+                onClick: () => props.selectFxTrailLength(entry.id),
+              },
+              entry.label,
+            ),
+          ),
+          trailLengthHint,
+        )
+      : null,
     effectsKind === null
       ? null
       : settingsRow(
@@ -2372,6 +2851,8 @@ function apply(ctx) {
   let effects = storedEffects();
   let fx = storedFx();
   let labels = storedLabels();
+  let knobShapeMap = storedKnobShapes();
+  let knobSizeValue = storedKnobSize();
   /* 配色：内置项先补齐；旧版按外观存的自定义色迁移成独立配色，只迁一次。 */
   let palettes = storedPalettes();
   let paletteId = storedPaletteId();
@@ -2564,6 +3045,11 @@ function apply(ctx) {
       for (const fn of listeners) fn();
     },
   };
+  /** 渐变的改动都从这里走：只换色标 / 方向，其余特效设置原样带着。 */
+  const setFxGradient = (patch) => {
+    const current = normalizeGradient(fx.gradient);
+    fxStore.set({ ...fx, gradient: { ...current, ...patch } });
+  };
   const labelsStore = makeChoiceStore(
     () => labels,
     (next) => {
@@ -2571,6 +3057,30 @@ function apply(ctx) {
       rememberLabels(next);
     },
     normalizeLabels,
+  );
+  /** 旋钮形状按外观各记一份：只写当前外观，其它外观保持原样。 */
+  const knobShapesStore = {
+    get: () => knobShapeMap,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    set: (styleId, shapeId) => {
+      const style = normalizeStyle(styleId);
+      const shape = normalizeKnobShape(style, shapeId);
+      if (knobShapeMap[style] === shape) return;
+      knobShapeMap = { ...knobShapeMap, [style]: shape };
+      rememberKnobShapes(knobShapeMap);
+      for (const fn of listeners) fn();
+    },
+  };
+  const knobSizeStore = makeChoiceStore(
+    () => knobSizeValue,
+    (next) => {
+      knobSizeValue = next;
+      rememberKnobSize(next);
+    },
+    normalizeKnobSize,
   );
   const release = () => {
     if (typeof seatDispose === "function") {
@@ -2631,6 +3141,8 @@ function apply(ctx) {
       effects: effectsStore,
       fx: fxStore,
       labels: labelsStore,
+      knobShapes: knobShapesStore,
+      knobSize: knobSizeStore,
     };
     setStatus("modelDirectories / sessions 已就绪");
     sync();
@@ -2704,9 +3216,41 @@ function apply(ctx) {
           selectEffects: (id) => effectsStore.set(id),
           getFx: () => fx,
           selectFxMax: (on) => fxStore.set({ ...fx, maxOnly: on === true }),
+          selectFxTrail: (on) => fxStore.set({ ...fx, trail: on === true }),
+          selectFxTrailLength: (id) => fxStore.set({ ...fx, trailLength: id }),
           selectFxSpeed: (kind, speed) => fxStore.set({ ...fx, speeds: { ...fx.speeds, [kind]: speed } }),
+          selectFxGradientReverse: (on) => setFxGradient({ reverse: on === true }),
+          selectFxGradientCustom: () => setFxGradient({ colors: GRADIENT_SEED_COLORS.slice() }),
+          selectFxGradientFollow: () => setFxGradient({ colors: [] }),
+          selectFxGradientColor: (index, value) => {
+            const current = normalizeGradient(fx.gradient).colors.slice();
+            if (index < 0 || index >= current.length) return;
+            current[index] = String(value);
+            setFxGradient({ colors: current });
+          },
+          selectFxGradientAdd: () => {
+            const current = normalizeGradient(fx.gradient).colors;
+            if (current.length === 0) {
+              setFxGradient({ colors: GRADIENT_SEED_COLORS.slice() });
+              return;
+            }
+            if (current.length >= GRADIENT_MAX_STOPS) return;
+            setFxGradient({
+              colors: [...current, GRADIENT_SEED_COLORS[current.length % GRADIENT_SEED_COLORS.length]],
+            });
+          },
+          selectFxGradientRemove: (index) => {
+            const current = normalizeGradient(fx.gradient).colors.slice();
+            if (current.length <= GRADIENT_MIN_STOPS) return;
+            current.splice(index, 1);
+            setFxGradient({ colors: current });
+          },
           getLabels: () => labels,
           selectLabels: (id) => labelsStore.set(id),
+          getKnobShapes: () => knobShapeMap,
+          selectKnobShape: (styleId, shapeId) => knobShapesStore.set(styleId, shapeId),
+          getKnobSize: () => knobSizeValue,
+          selectKnobSize: (id) => knobSizeStore.set(id),
           selectEnabled: (id) => {
             enabled = id !== "off";
             rememberEnabled(enabled);
@@ -2744,6 +3288,18 @@ module.exports = {
     storedSmooth,
     storedEffects,
     storedLabels,
+    storedKnobShapes,
+    storedKnobSize,
+    normalizeKnobShape,
+    normalizeKnobSize,
+    normalizeKnobShapes,
+    sliderGeometry,
+    KNOB_SHAPES,
+    KNOB_STYLE_SHAPES,
+    KNOB_SIZES,
+    DEFAULT_KNOB_SHAPES,
+    DEFAULT_KNOB_SIZE,
+    THUMB_DISCS,
     storedFx,
     normalizeFx,
     resolveEffects,

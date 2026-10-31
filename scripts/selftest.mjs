@@ -270,6 +270,21 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   if (resolveLabels('none', 'claude') !== 'none') throw new Error('explicit none wins for claude');
 }
 
+/* 特效设置归一：尾迹默认开、长度默认短；旧对象没有这两项也补齐，坏长度回短。 */
+{
+  const { normalizeFx } = pluginModule.exports.__test;
+  const legacy = normalizeFx({ maxOnly: false, speeds: { dust: 0.7 } });
+  if (legacy.trail !== true || legacy.trailLength !== 'short') {
+    throw new Error('normalizeFx should default trail on / short, got ' + JSON.stringify(legacy));
+  }
+  if (normalizeFx({ trail: false, trailLength: 'long' }).trailLength !== 'long') {
+    throw new Error('normalizeFx should keep a valid trail length');
+  }
+  if (normalizeFx({ trailLength: 'huge' }).trailLength !== 'short') {
+    throw new Error('normalizeFx should fall back to short for unknown trail lengths');
+  }
+}
+
 /* 刻度词的边界位移：居中优先，碰到带内边距外沿才往里让；比轨道宽就交给省略号。 */
 {
   const { clampLabelShift, labelShiftTransform, sameShifts } = pluginModule.exports.__test;
@@ -446,6 +461,12 @@ react.reset();
       subscribePalettes: () => () => {},
       getDark: () => options.dark === true,
       subscribeDark: () => () => {},
+      getKnobShapes: () => options.knobs ?? {},
+      subscribeKnobShapes: () => () => {},
+      getKnobSize: () => options.knobSize ?? 'md',
+      subscribeKnobSize: () => () => {},
+      getFx: () => options.fx ?? { maxOnly: false, trail: true, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } },
+      subscribeFx: () => () => {},
     };
     let tree = react.render(Seat, props);
     findClass(tree, 'dts-trigger').props.onClick({});
@@ -486,6 +507,31 @@ react.reset();
     (node) => typeof node.props?.className === 'string' && node.props.className.includes('dts-flowPath'),
   );
   if (flowPaths.length !== 8) throw new Error('codex max fill flow should have 8 particles');
+  /* 远近：每颗点的尺寸 / 透明度都不一样；尾迹默认开（空字符串属性）。 */
+  const depthSizes = flowPaths.map((node) => node.props.style['--dts-dust-size']);
+  const depthAlphas = flowPaths.map((node) => node.props.style['--dts-dust-alpha']);
+  if (new Set(depthSizes).size !== flowPaths.length || new Set(depthAlphas).size !== flowPaths.length) {
+    throw new Error('dust particles should carry distinct depth size / alpha');
+  }
+  if (flow.props['data-dts-trail'] !== '') throw new Error('dust trails should default to on');
+  if (flow.props['data-dts-trail-length'] !== 'short') throw new Error('dust trail length should default to short');
+  const noTrail = findClass(
+    renderStyled('codex', 'max', {
+      fx: { maxOnly: false, trail: false, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } },
+    }),
+    'dts-flow',
+  );
+  if (noTrail.props['data-dts-trail'] !== undefined) throw new Error('trail off should drop data-dts-trail');
+  if (noTrail.props['data-dts-trail-length'] !== undefined) {
+    throw new Error('trail off should drop data-dts-trail-length');
+  }
+  const longTrail = findClass(
+    renderStyled('codex', 'max', {
+      fx: { maxOnly: false, trail: true, trailLength: 'long', speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } },
+    }),
+    'dts-flow',
+  );
+  if (longTrail.props['data-dts-trail-length'] !== 'long') throw new Error('long trail should reach the flow layer');
   /* 强度是一根 0–1 的总线：4 档时最高档是 1，中间档是它在序列里的位置。 */
   if (flow.props.style['--dts-power'] !== 1) {
     throw new Error('codex max flow should be at full power, got ' + flow.props.style['--dts-power']);
@@ -496,8 +542,8 @@ react.reset();
   if (Math.abs(Number(idleFlow.props.style['--dts-power']) - 2 / 3) > 1e-9) {
     throw new Error('codex high should sit at two thirds power, got ' + idleFlow.props.style['--dts-power']);
   }
-  if (findClass(codex, 'dts-scale').props.style['--dts-thumb-w'] !== '28px') {
-    throw new Error('codex thumb should be 28px');
+  if (findClass(codex, 'dts-scale').props.style['--dts-thumb-w'] !== '32px') {
+    throw new Error('codex thumb should be 32px');
   }
 
   /* 配色是独立一层：选中的配色按当前深浅写进菜单的 inline 变量。 */
@@ -558,6 +604,63 @@ react.reset();
   }
   if (findClass(compact, 'dts-scale').props.style['--dts-pad'] !== '6px') {
     throw new Error('compact pad should stay 6px');
+  }
+  if (findClass(compact, 'dts-scale').props.style['--dts-thumb-w'] !== '12px') {
+    throw new Error('compact square thumb should stay 12px');
+  }
+
+  /* 拇指形状：紧凑切圆是 16px 盒子（2px 环 + 12 白芯）、pad 6；胶囊切回旧版
+     圆角方时是出错那版的 32px、pad 16，拇指本身不再走 SVG，交给旧版 CSS 圆角。 */
+  const compactCircle = renderStyled('compact', 'high', { knobs: { compact: 'circle' } });
+  const compactCircleScale = findClass(compactCircle, 'dts-scale');
+  if (compactCircleScale.props.style['--dts-thumb-w'] !== '16px') {
+    throw new Error('compact circle thumb should be 16px, got ' + compactCircleScale.props.style['--dts-thumb-w']);
+  }
+  if (compactCircleScale.props.style['--dts-pad'] !== '6px') {
+    throw new Error('compact circle should keep pad 6px');
+  }
+  const compactDisc = findClass(compactCircle, 'dts-thumbDisc');
+  if (compactDisc === undefined || compactDisc.children?.[0]?.type !== 'circle') {
+    throw new Error('compact circle thumb should be drawn as an SVG circle');
+  }
+  if (findNode(compactCircle, (node) => node.props?.['data-dts-knob'] === 'circle') === undefined) {
+    throw new Error('compact circle should expose data-dts-knob="circle"');
+  }
+
+  const codexSquare = renderStyled('codex', 'max', { knobs: { codex: 'square' } });
+  const codexSquareScale = findClass(codexSquare, 'dts-scale');
+  if (codexSquareScale.props.style['--dts-thumb-w'] !== '32px') {
+    throw new Error('codex square thumb should be 32px, got ' + codexSquareScale.props.style['--dts-thumb-w']);
+  }
+  if (codexSquareScale.props.style['--dts-pad'] !== '16px') {
+    throw new Error('codex square should use pad 16px');
+  }
+  if (findClass(codexSquare, 'dts-thumbDisc') !== undefined) {
+    throw new Error('codex square should keep the old CSS thumb, not an SVG disc');
+  }
+  const codexThumb = findClass(codexSquare, 'dts-thumb');
+  if (codexThumb === undefined || String(codexThumb.props.className).includes('dts-thumb--disc')) {
+    throw new Error('codex square thumb should be the plain CSS thumb');
+  }
+  if (findNode(codexSquare, (node) => node.props?.['data-dts-knob'] === 'square') === undefined) {
+    throw new Error('codex square should expose data-dts-knob="square"');
+  }
+
+  /* 大小只缩拇指与 pad，轨道高度不动。 */
+  const codexLarge = renderStyled('codex', 'high', { knobSize: 'lg' });
+  const codexLargeScale = findClass(codexLarge, 'dts-scale');
+  if (codexLargeScale.props.style['--dts-thumb-w'] !== '38px' || codexLargeScale.props.style['--dts-pad'] !== '19px') {
+    throw new Error('codex large knob should be 38px / pad 19px');
+  }
+  if (codexLargeScale.props.style['--dts-track-h'] !== '28px') {
+    throw new Error('knob size should not change the track height');
+  }
+
+  /* 旧版存的 sm 已经没有对应档，读回按标准：紧凑圆角方仍是 12px / pad 6px。 */
+  const compactLegacySmall = renderStyled('compact', 'high', { knobSize: 'sm' });
+  const compactLegacyScale = findClass(compactLegacySmall, 'dts-scale');
+  if (compactLegacyScale.props.style['--dts-thumb-w'] !== '12px' || compactLegacyScale.props.style['--dts-pad'] !== '6px') {
+    throw new Error('legacy sm knob size should read back as standard');
   }
 
   const compactTinted = renderStyled('compact', 'high', {
@@ -708,8 +811,8 @@ react.reset();
   const flowOf = () => findClass(tree, 'dts-flow');
   const power = () => Number(flowOf().props.style['--dts-power']);
   const near = (a, b) => Math.abs(a - b) < 1e-9;
-  /* codex：pad 14、轨道宽 100，0–1 的 ratio 换算成 clientX。 */
-  const at = (ratio) => 14 + ratio * 72;
+  /* codex：pad 16、轨道宽 100，0–1 的 ratio 换算成 clientX。 */
+  const at = (ratio) => 16 + ratio * 68;
   sliderOf().props.ref.current = track;
 
   if (flowOf().props['data-dts-fx'] !== 'dust') throw new Error('codex auto should render dust');
@@ -773,6 +876,55 @@ react.reset();
   sliderOf().props.onPointerUp({ clientX: at(0.2), pointerId: 4 });
 }
 
+/* 2e1. 渐变：色标留空就拼配色的三枚变量；填了色标就用填的；方向挂在 data 上。 */
+{
+  const store = storeOf({
+    current: { provider: 'deepseek-official', model: 'm1', reasoningEffort: 'high' },
+    groups,
+    status: 'ready',
+    pending: null,
+    error: null,
+    failures: [],
+  });
+  const fxState = { gradient: { colors: [], reverse: false } };
+  const props = {
+    ...baseProps(store),
+    getStyle: () => 'codex',
+    subscribeStyle: () => () => {},
+    getEffects: () => 'gradient',
+    subscribeEffects: () => () => {},
+    getFx: () => fxState,
+    subscribeFx: () => () => {},
+  };
+  react.reset();
+  let tree = react.render(Seat, props);
+  findClass(tree, 'dts-trigger').props.onClick({});
+  tree = react.render(Seat, props);
+  const flow = findClass(tree, 'dts-flow');
+  if (flow.props['data-dts-fx'] !== 'gradient') {
+    throw new Error('gradient should render as the effect kind, got ' + flow.props['data-dts-fx']);
+  }
+  const layer = findClass(tree, 'dts-fxGradient');
+  if (layer === undefined) throw new Error('gradient layer should render');
+  if (!String(layer.props.style.backgroundImage).includes('var(--dts-fill-color')) {
+    throw new Error('empty stops should follow the palette, got ' + layer.props.style.backgroundImage);
+  }
+  if (flow.props['data-dts-grad'] !== undefined) {
+    throw new Error('forward gradient should not set data-dts-grad');
+  }
+
+  fxState.gradient = { colors: ['#112233', '#445566', '#778899'], reverse: true };
+  tree = react.render(Seat, props);
+  const flow2 = findClass(tree, 'dts-flow');
+  const layer2 = findClass(tree, 'dts-fxGradient');
+  if (flow2.props['data-dts-grad'] !== 'reverse') {
+    throw new Error('reverse gradient should set data-dts-grad');
+  }
+  if (!String(layer2.props.style.backgroundImage).includes('#112233')) {
+    throw new Error('custom stops should replace palette stops, got ' + layer2.props.style.backgroundImage);
+  }
+}
+
 /* 2e2. 只在最高档：静止时功率只给 0 / 1；平滑拖动进出最高档要跟手渐变，不能硬切。 */
 {
   const fxMax = { maxOnly: true, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } };
@@ -820,7 +972,7 @@ react.reset();
   };
   const sliderOf = () => findNode(dragging.tree(), (node) => node.props?.role === 'slider');
   sliderOf().props.ref.current = track;
-  sliderOf().props.onPointerDown({ clientX: 14 + 0.95 * 72, pointerId: 9, preventDefault() {} });
+  sliderOf().props.onPointerDown({ clientX: 16 + 0.95 * 68, pointerId: 9, preventDefault() {} });
   dragging.set(react.render(Seat, dragging.props));
   /* 4 档：边界在 (3-0.5)/3 = 0.833，0.95 处 smoothstep 得 0.784。 */
   if (Math.abs(powerOf(dragging.tree()) - 0.784) > 0.01) {
@@ -830,16 +982,16 @@ react.reset();
     throw new Error('max-only ramp should drop the power transition while following the pointer');
   }
   /* 边界左边仍是全暗：还没进最高档那格。 */
-  sliderOf().props.onPointerMove({ clientX: 14 + 0.5 * 72, pointerId: 9 });
+  sliderOf().props.onPointerMove({ clientX: 16 + 0.5 * 68, pointerId: 9 });
   dragging.set(react.render(Seat, dragging.props));
   if (powerOf(dragging.tree()) !== 0) {
     throw new Error('max-only should stay dark below the top zone, got ' + powerOf(dragging.tree()));
   }
   /* 再拖回右端、松手：提交走宿主，功率回到已提交档（还是 high，所以是 0）。 */
-  sliderOf().props.onPointerMove({ clientX: 14 + 0.98 * 72, pointerId: 9 });
+  sliderOf().props.onPointerMove({ clientX: 16 + 0.98 * 68, pointerId: 9 });
   dragging.set(react.render(Seat, dragging.props));
   if (!(powerOf(dragging.tree()) > 0.9)) throw new Error('top zone should be nearly full at the right end');
-  sliderOf().props.onPointerUp({ clientX: 14 + 0.98 * 72, pointerId: 9 });
+  sliderOf().props.onPointerUp({ clientX: 16 + 0.98 * 68, pointerId: 9 });
   dragging.set(react.render(Seat, dragging.props));
   if (powerOf(dragging.tree()) !== 0) {
     throw new Error('after release max-only should fall back to the committed tier, got ' + powerOf(dragging.tree()));
@@ -858,6 +1010,8 @@ react.reset();
     effects: 'auto',
     fx: { maxOnly: false, speeds: { flow: 1, dust: 1, pulse: 1, glyph: 1 } },
     labels: 'auto',
+    knobs: { compact: 'square', codex: 'circle' },
+    knobSize: 'md',
     palette: 'auto',
     palettes: BUILTIN_PALETTES.map((entry) => ({ ...entry, light: { ...entry.light }, dark: { ...entry.dark } })),
     dark: false,
@@ -871,6 +1025,8 @@ react.reset();
     getEffects: () => flags.effects,
     getFx: () => flags.fx,
     getLabels: () => flags.labels,
+    getKnobShapes: () => flags.knobs,
+    getKnobSize: () => flags.knobSize,
     getPalette: () => flags.palette,
     getPalettes: () => flags.palettes,
     getDark: () => flags.dark,
@@ -924,13 +1080,61 @@ react.reset();
       flags.fx = { ...flags.fx, maxOnly: on === true };
       flags.picked.push('max:' + on);
     },
+    selectFxTrail: (on) => {
+      flags.fx = { ...flags.fx, trail: on === true };
+      flags.picked.push('trail:' + on);
+    },
+    selectFxTrailLength: (id) => {
+      flags.fx = { ...flags.fx, trailLength: id };
+      flags.picked.push('trail-length:' + id);
+    },
     selectFxSpeed: (kind, speed) => {
       flags.fx = { ...flags.fx, speeds: { ...flags.fx.speeds, [kind]: speed } };
       flags.picked.push(`speed:${kind}:${speed}`);
     },
+    selectFxGradientReverse: (on) => {
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), reverse: on === true } };
+      flags.picked.push('gradient-reverse:' + on);
+    },
+    selectFxGradientCustom: () => {
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), colors: ['#7c63f5', '#2dc9ff', '#ff9bd7'] } };
+      flags.picked.push('gradient-custom');
+    },
+    selectFxGradientFollow: () => {
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), colors: [] } };
+      flags.picked.push('gradient-follow');
+    },
+    selectFxGradientColor: (index, value) => {
+      const colors = [...((flags.fx.gradient || {}).colors || [])];
+      colors[index] = value;
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), colors } };
+      flags.picked.push(`gradient-color:${index}:${value}`);
+    },
+    selectFxGradientAdd: () => {
+      const colors = [...((flags.fx.gradient || {}).colors || [])];
+      if (colors.length === 0) colors.push('#7c63f5', '#2dc9ff', '#ff9bd7');
+      else if (colors.length < 6) colors.push('#ffffff');
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), colors } };
+      flags.picked.push('gradient-add');
+    },
+    selectFxGradientRemove: (index) => {
+      const colors = [...((flags.fx.gradient || {}).colors || [])];
+      if (colors.length <= 2) return;
+      colors.splice(index, 1);
+      flags.fx = { ...flags.fx, gradient: { ...(flags.fx.gradient || {}), colors } };
+      flags.picked.push('gradient-remove:' + index);
+    },
     selectLabels: (id) => {
       flags.labels = id;
       flags.picked.push(id);
+    },
+    selectKnobShape: (styleId, shapeId) => {
+      flags.knobs = { ...flags.knobs, [styleId]: shapeId };
+      flags.picked.push(`knob:${styleId}:${shapeId}`);
+    },
+    selectKnobSize: (id) => {
+      flags.knobSize = id;
+      flags.picked.push(`knob-size:${id}`);
     },
     subscribe: () => () => {},
   });
@@ -954,7 +1158,7 @@ react.reset();
   for (const label of ['滑条', '特效', '配色']) {
     if (!groupLabels.includes(label)) throw new Error('settings should group rows under ' + label);
   }
-  for (const label of ['接管', '外观', '刻度', '滑动']) {
+  for (const label of ['接管', '外观', '拇指', '大小', '刻度', '滑动']) {
     const row = rowOf(tree, label);
     if (row === undefined) throw new Error('settings row missing ' + label);
     if (!walk(row).some((node) => String(node.props?.className || '').includes('dts-controls'))) {
@@ -977,6 +1181,18 @@ react.reset();
   }
   if (findChip(tree, '逐档') === undefined) throw new Error('settings should keep the step chip');
 
+  /* 拇指：紧凑有圆角方 / 圆两档，点「圆」按外观写回；大小只有标准 / 大。 */
+  if (chipIn(tree, '拇指', '圆角方') === undefined) throw new Error('knob row should offer the square chip');
+  const circleChip = chipIn(tree, '拇指', '圆');
+  if (circleChip === undefined) throw new Error('compact knob row should offer the circle chip');
+  if (circleChip.props['aria-pressed'] !== false) throw new Error('compact knob should start square');
+  circleChip.props.onClick({});
+  if (flags.knobs.compact !== 'circle') throw new Error('circle chip should write the knob shape');
+  if (chipIn(tree, '大小', '标准').props['aria-pressed'] !== true) throw new Error('knob size should start standard');
+  if (chipIn(tree, '大小', '小') !== undefined) throw new Error('knob size should no longer offer the small chip');
+  chipIn(tree, '大小', '大').props.onClick({});
+  if (flags.knobSize !== 'lg') throw new Error('knob size chip should write lg');
+
   /* 特效：关 / 跟随外观 + 四个样式，默认跟随外观；点「关」写回 off。 */
   const autoEffects = chipIn(tree, '特效', '跟随外观');
   if (autoEffects === undefined) throw new Error('effects row should offer the auto chip');
@@ -988,6 +1204,62 @@ react.reset();
   if (flags.effects !== 'pulse') throw new Error('effects chip should write pulse, got ' + flags.effects);
   chipIn(tree, '特效', '关').props.onClick({});
   if (flags.effects !== 'off') throw new Error('effects chip should write off, got ' + flags.effects);
+
+  /* 渐变：留空时只给「自定义」，方向两枚芯片；自定义后出现三枚色标与「跟随配色」。 */
+  flags.effects = 'gradient';
+  flags.fx = { ...flags.fx, gradient: { colors: [], reverse: false } };
+  tree = react.render(SettingsPanel, makeProps());
+  const gradientForward = chipIn(tree, '方向', '正');
+  const gradientReverse = chipIn(tree, '方向', '反');
+  if (gradientForward === undefined || gradientReverse === undefined) {
+    throw new Error('gradient should offer forward / reverse');
+  }
+  if (gradientForward.props['aria-pressed'] !== true) throw new Error('gradient should start forward');
+  const gradientCustom = chipIn(tree, '色标', '自定义');
+  if (gradientCustom === undefined) throw new Error('empty gradient should offer a custom button');
+  if (chipIn(tree, '色标', '跟随配色') !== undefined) {
+    throw new Error('empty gradient should show follow hint, not a follow reset');
+  }
+  gradientCustom.props.onClick({});
+  if ((flags.fx.gradient.colors || []).length !== 3) {
+    throw new Error('custom should seed three stops, got ' + JSON.stringify(flags.fx.gradient.colors));
+  }
+  tree = react.render(SettingsPanel, makeProps());
+  if (chipIn(tree, '色标', '跟随配色') === undefined) {
+    throw new Error('custom stops should keep the follow-palette reset');
+  }
+  if (chipIn(tree, '色标', '＋ 色标') === undefined) {
+    throw new Error('custom stops should offer another stop');
+  }
+  chipIn(tree, '方向', '反').props.onClick({});
+  if (flags.fx.gradient.reverse !== true) {
+    throw new Error('reverse chip should flip the flow direction, got ' + flags.fx.gradient.reverse);
+  }
+
+  /* 尾迹：只在密度粒子上出现（默认开）。长度默认短，可切中 / 长；关掉后长度行收起。 */
+  flags.effects = 'dust';
+  tree = react.render(SettingsPanel, makeProps());
+  const trailOn = chipIn(tree, '尾迹', '开');
+  if (trailOn === undefined || trailOn.props['aria-pressed'] !== true) {
+    throw new Error('dust should default to trails on');
+  }
+  for (const label of ['短', '中', '长']) {
+    if (chipIn(tree, '长度', label) === undefined) throw new Error('trail length row missing chip ' + label);
+  }
+  if (chipIn(tree, '长度', '短').props['aria-pressed'] !== true) throw new Error('trail length should default to short');
+  chipIn(tree, '长度', '长').props.onClick({});
+  if (flags.fx.trailLength !== 'long') {
+    throw new Error('trail length chip should write long, got ' + flags.fx.trailLength);
+  }
+  tree = react.render(SettingsPanel, makeProps());
+  if (chipIn(tree, '长度', '长').props['aria-pressed'] !== true) {
+    throw new Error('trail length should read back long');
+  }
+  chipIn(tree, '尾迹', '关').props.onClick({});
+  if (flags.fx.trail !== false) throw new Error('trail chip should write false, got ' + flags.fx.trail);
+  tree = react.render(SettingsPanel, makeProps());
+  if (chipIn(tree, '长度', '短') !== undefined) throw new Error('trail length row should hide when trails are off');
+  flags.effects = 'off';
 
   /* 刻度：四档，默认跟随外观；点「档位名」写回 ticks。 */
   if (chipIn(tree, '刻度', '跟随外观') === undefined) throw new Error('labels row should offer the auto chip');
@@ -1545,4 +1817,4 @@ react.reset();
   if (props.getPalette() !== 'auto') throw new Error('removing the active palette should fall back to auto');
 }
 
-console.log('selftest OK — open / model choose / effort commit / smooth drag freeze + snap / effect power follows tier and pointer / clamp / failure rollback (ok:false / reject / sync throw) / PageUp·PageDown / pointercancel + lostcapture / no-effort / unavailable / styles');
+console.log('selftest OK — open / model choose / effort commit / smooth drag freeze + snap / effect power follows tier and pointer / clamp / failure rollback (ok:false / reject / sync throw) / PageUp·PageDown / pointercancel + lostcapture / no-effort / unavailable / styles / knobs (shape + size)');

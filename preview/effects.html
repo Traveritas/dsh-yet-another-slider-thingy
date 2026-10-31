@@ -129,6 +129,15 @@
         <button class="lab-chip" id="themeLight" aria-pressed="true">浅</button>
         <button class="lab-chip" id="themeDark" aria-pressed="false">深</button>
       </label>
+      <label><input type="checkbox" id="trail" checked /> 密度粒子尾迹</label>
+      <label
+        >长度
+        <select id="trail-length">
+          <option value="short" selected>短</option>
+          <option value="medium">中</option>
+          <option value="long">长</option>
+        </select>
+      </label>
       <label>列 = 档位强度 0 · 0.33 · 0.66 · 1（同一根 --dts-power）</label>
     </div>
     <div id="lab"></div>
@@ -141,31 +150,87 @@
         { id: "dust", label: "密度粒子" },
         { id: "pulse", label: "心跳" },
         { id: "glyph", label: "字符点阵场" },
+        { id: "gradient", label: "渐变" },
       ];
       const STYLES = [
-        { id: "compact", label: "紧凑", geo: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 } },
-        { id: "claude", label: "块面", geo: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 } },
-        { id: "codex", label: "胶囊", geo: { pad: 14, thumbW: 28, thumbH: 28, trackH: 28 } },
+        { id: "compact", label: "紧凑", shape: "square", geo: { pad: 6, thumbW: 12, thumbH: 12, trackH: 20 } },
+        { id: "claude", label: "块面", shape: "square", geo: { pad: 14, thumbW: 24, thumbH: 28, trackH: 28 } },
+        { id: "codex", label: "胶囊", shape: "circle", geo: { pad: 16, thumbW: 32, thumbH: 32, trackH: 28 } },
       ];
+      /* 和座位里的 THUMB_DISCS 同一份形状数据；只有「圆」走矢量。 */
+      const THUMB_DISCS = {
+        compact: {
+          circle: { viewBox: "0 0 16 16", strokeWidth: 2, shape: { type: "circle", cx: 8, cy: 8, r: 7 } },
+        },
+        codex: {
+          circle: { viewBox: "0 0 32 32", strokeWidth: 1.5, shape: { type: "circle", cx: 16, cy: 16, r: 15.25 } },
+        },
+      };
       const POWERS = [0, 0.33, 0.66, 1];
       const LEVELS = ["关闭", "低", "高", "最高"];
+      /* 和座位里同一份密度粒子数据：depth 决定远近（尺寸 / 透明度 / 尾长 / 速度）。 */
       const PARTICLES = [
-        { top: 4, duration: 3.2, delay: 0 },
-        { top: 9, duration: 3.8, delay: -0.7 },
-        { top: 14, duration: 2.9, delay: -1.4 },
-        { top: 19, duration: 3.5, delay: -2.1 },
-        { top: 6, duration: 4.1, delay: -0.3 },
-        { top: 11, duration: 3.0, delay: -1.8 },
-        { top: 16, duration: 3.6, delay: -1.1 },
-        { top: 21, duration: 3.3, delay: -2.5 },
+        { top: 4, duration: 3.0, delay: 0, depth: 0.9 },
+        { top: 9, duration: 4.3, delay: -0.7, depth: 0.2 },
+        { top: 14, duration: 3.6, delay: -1.4, depth: 0.55 },
+        { top: 19, duration: 4.6, delay: -2.1, depth: 0.1 },
+        { top: 6, duration: 3.9, delay: -0.3, depth: 0.35 },
+        { top: 11, duration: 3.2, delay: -1.8, depth: 0.75 },
+        { top: 16, duration: 2.8, delay: -1.1, depth: 1 },
+        { top: 21, duration: 3.4, delay: -2.5, depth: 0.65 },
       ];
+      /* 和座位里的 dustVars() 同一个公式；改一处记得两边一起改。
+         尺寸是直径：整体缩到原来的一半。 */
+      const dustVars = (depth) => ({
+        "--dts-dust-size": (1.1 + 1.2 * depth).toFixed(2) + "px",
+        "--dts-dust-alpha": (0.45 + 0.55 * depth).toFixed(2),
+        "--dts-dust-tail": (7 + 16 * depth).toFixed(1) + "px",
+      });
       const GLYPHS = "01+#×/=:·".repeat(8);
+      /* 预览里的渐变色标固定用配色的三枚；插件里换成自定义色标时算法相同。 */
+      const GRADIENT_PALETTE = [
+        "var(--dts-fill-color, var(--dsw-alias-state-business-primary))",
+        "var(--dts-accent-color, var(--dsw-alias-state-business-primary))",
+        "var(--dts-particle-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary)))",
+      ];
+      const gradientImage = () => {
+        const tile = [...GRADIENT_PALETTE, GRADIENT_PALETTE[0]];
+        const gaps = 2 * (tile.length - 1);
+        const stops = [];
+        for (let copy = 0; copy < 2; copy += 1) {
+          for (let index = 0; index < tile.length; index += 1) {
+            const position = (copy * (tile.length - 1) + index) / gaps;
+            stops.push(`${tile[index]} ${(position * 100).toFixed(3)}%`);
+          }
+        }
+        return `linear-gradient(90deg, ${stops.join(", ")})`;
+      };
 
       const el = (tag, cls, style) => {
         const node = document.createElement(tag);
         if (cls) node.className = cls;
         if (style) for (const [k, v] of Object.entries(style)) node.style.setProperty(k, v);
         return node;
+      };
+
+      const buildThumb = (style) => {
+        const disc = THUMB_DISCS[style.id]?.[style.shape];
+        const thumb = el("span", "dts-thumb" + (disc ? " dts-thumb--disc" : ""));
+        if (!disc) return thumb;
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "dts-thumbDisc");
+        svg.setAttribute("viewBox", disc.viewBox);
+        svg.setAttribute("aria-hidden", "true");
+        const node = document.createElementNS("http://www.w3.org/2000/svg", disc.shape.type);
+        for (const key of ["cx", "cy", "r", "x", "y", "width", "height", "rx"]) {
+          if (disc.shape[key] !== undefined) node.setAttribute(key, disc.shape[key]);
+        }
+        node.setAttribute("fill", "var(--dts-thumb-color, var(--dsw-alias-bg-base))");
+        node.setAttribute("stroke", "var(--dts-thumb-ring-color)");
+        node.setAttribute("stroke-width", disc.strokeWidth);
+        svg.append(node);
+        thumb.append(svg);
+        return thumb;
       };
 
       /* 一根滑条：和座位里同构，power 只写在 --dts-power 上。 */
@@ -177,6 +242,7 @@
           "--dts-pad": style.geo.pad + "px",
         });
         wrap.dataset.dtsStyle = style.id;
+        wrap.dataset.dtsKnob = style.shape;
         const track = el("div", "dts-track");
         track.setAttribute("role", "slider");
         track.style.height = style.geo.trackH + "px";
@@ -185,6 +251,10 @@
 
         const flow = el("span", "dts-flow", { "--dts-power": String(power) });
         flow.dataset.dtsFx = fx;
+        if (fx === "dust") {
+          flow.dataset.dtsTrail = "";
+          flow.dataset.dtsTrailLength = "short";
+        }
         if (style.geo.trackH < 24) flow.dataset.dtsFlow = "thin";
 
         flow.append(el("canvas", "dts-pixelFlow"));
@@ -200,12 +270,18 @@
         }
         flow.append(glyph);
 
+        /* 渐变：用配色三枚变量拼一张两倍宽的图，和插件里的算法一致。 */
+        flow.append(
+          el("span", "dts-fxGradient", { "background-image": gradientImage() }),
+        );
+
         PARTICLES.forEach((p, i) => {
           const path = el("span", "dts-flowPath", {
             "--dts-flow-top": p.top + "px",
             "--dts-flow-duration": p.duration + "s",
             "--dts-flow-delay": p.delay + "s",
             "--dts-fx-i": String(i / PARTICLES.length),
+            ...dustVars(p.depth),
           });
           path.append(el("i"));
           flow.append(path);
@@ -223,7 +299,9 @@
           });
           track.append(dot);
         });
-        track.append(el("span", "dts-thumb", { left: `calc(${pad}px + ${ratio} * (100% - ${pad}px * 2))` }));
+        const thumb = buildThumb(style);
+        thumb.style.left = `calc(${pad}px + ${ratio} * (100% - ${pad}px * 2))`;
+        track.append(thumb);
 
         wrap.append(track);
         return wrap;
@@ -290,6 +368,20 @@
         document.getElementById("themeLight").setAttribute("aria-pressed", String(!on));
         document.getElementById("themeDark").setAttribute("aria-pressed", String(on));
       }
+
+      /* 尾迹开关：只动密度粒子那几层的 data 属性，和插件里同一条 CSS 路径。 */
+      document.getElementById("trail").onchange = (event) => {
+        for (const layer of document.querySelectorAll('.dts-flow[data-dts-fx="dust"]')) {
+          if (event.target.checked) layer.dataset.dtsTrail = "";
+          else delete layer.dataset.dtsTrail;
+        }
+      };
+      /* 长度：短 / 中 / 长，倍数写在 CSS 的 --dts-tail-scale 上。 */
+      document.getElementById("trail-length").onchange = (event) => {
+        for (const layer of document.querySelectorAll('.dts-flow[data-dts-fx="dust"]')) {
+          layer.dataset.dtsTrailLength = event.target.value;
+        }
+      };
 
       build();
       window.__labReady = true;
