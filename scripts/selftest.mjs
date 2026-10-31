@@ -198,13 +198,53 @@ const { createThinkingSliderSeat } = pluginModule.exports.__test;
   /* 存储：内置项总会补齐，自定义项原样保留。 */
   store.delete('dsh-yet-another-slider-thingy:palettes');
   const empty = storedPalettes();
-  const builtinIds = ['claude', 'codex', 'tundra', 'seasalt', 'duskrose'];
+  const builtinIds = ['claude', 'codex', 'tundra', 'seasalt', 'theme-averita', 'theme-coldmorning', 'duskrose', 'theme-duskpurple'];
   if (empty.length !== builtinIds.length || builtinIds.some((id, index) => empty[index].id !== id)) {
     throw new Error('storedPalettes should seed the built-ins');
   }
   const tundra = empty.find((palette) => palette.id === 'tundra');
   if (tundra?.light?.fill !== '#d3ddc7' || tundra?.dark?.accent !== '#a7c48f') {
     throw new Error('tundra should ship with its light and dark colors');
+  }
+  /* 主题四套：七个槽都自带值，不依赖宿主的 --dsw-* 也画得出颜色。 */
+  const themePalettes = empty.filter((palette) => palette.id === 'duskrose' || palette.id.startsWith('theme-'));
+  if (themePalettes.length !== 4) throw new Error('the four theme palettes should be built in');
+  for (const palette of themePalettes) {
+    for (const mode of ['light', 'dark']) {
+      for (const slot of ['fill', 'accent', 'particle', 'thumb', 'track', 'tick', 'text']) {
+        if (!/^#[0-9a-f]{6}$/.test(palette[mode]?.[slot] ?? '')) {
+          throw new Error(`${palette.id} ${mode} should carry its own ${slot}`);
+        }
+      }
+    }
+  }
+  const duskrose = empty.find((palette) => palette.id === 'duskrose');
+  if (duskrose?.name !== '暮玫瑰' || duskrose?.light?.fill !== '#ad939a' || duskrose?.dark?.accent !== '#d3a6ad') {
+    throw new Error('duskrose should take over the theme palette');
+  }
+  const averita = empty.find((palette) => palette.id === 'theme-averita');
+  if (averita?.light?.track !== '#ebeef1' || averita?.dark?.text !== '#8691a2') {
+    throw new Error('theme-averita should carry the theme track and text colors');
+  }
+  /* 旧「暮玫」的本地副本：没改过就升级成暮玫瑰，改过一项就保留用户副本。 */
+  const oldDuskrose = {
+    id: 'duskrose',
+    name: '暮玫',
+    light: { fill: '#e7d3d5', accent: '#a35a67', particle: '#a35a67', thumb: '#ffffff' },
+    dark: { fill: '#3b2b2e', accent: '#d8959e', particle: '#d8959e', thumb: '#f8eeee' },
+  };
+  store.set('dsh-yet-another-slider-thingy:palettes', JSON.stringify([oldDuskrose]));
+  const upgraded = storedPalettes().find((palette) => palette.id === 'duskrose');
+  if (upgraded?.name !== '暮玫瑰' || upgraded?.light?.fill !== '#ad939a') {
+    throw new Error('untouched legacy duskrose should upgrade to the theme palette');
+  }
+  store.set(
+    'dsh-yet-another-slider-thingy:palettes',
+    JSON.stringify([{ ...oldDuskrose, light: { ...oldDuskrose.light, fill: '#111111' } }]),
+  );
+  const touched = storedPalettes().find((palette) => palette.id === 'duskrose');
+  if (touched?.name !== '暮玫' || touched?.light?.fill !== '#111111') {
+    throw new Error('edited legacy duskrose should be preserved');
   }
   store.set(
     'dsh-yet-another-slider-thingy:palettes',
@@ -1269,9 +1309,9 @@ react.reset();
   chipIn(tree, '刻度', '档位名').props.onClick({});
   if (flags.labels !== 'ticks') throw new Error('labels chip should write ticks, got ' + flags.labels);
 
-  /* 配色：默认「自动」，五套内置 + 新增按钮；选了配色才出现颜色区。 */
+  /* 配色：默认「自动」，八套内置 + 新增按钮；选了配色才出现颜色区。 */
   if (chipIn(tree, '配色', '自动') === undefined) throw new Error('palette row should offer the auto chip');
-  for (const name of ['Claude 风', 'Codex 风', '苔原', '海盐', '暮玫']) {
+  for (const name of ['Claude 风', 'Codex 风', '苔原', '海盐', '昼雾 · 靛夜', '冷晨', '暮玫瑰', '暮紫']) {
     if (chipIn(tree, '配色', name) === undefined) throw new Error('palette row missing built-in ' + name);
   }
   if (chipIn(tree, '配色', '＋ 新增') === undefined) throw new Error('palette row should offer adding one');
@@ -1337,13 +1377,13 @@ react.reset();
   /* 改名：输入时不动 store，失焦才提交。 */
   const nameInput = flatten(tree).find((node) => String(node.props?.className || '').includes('dts-paletteName'));
   if (nameInput === undefined) throw new Error('custom palette should offer a name input');
-  nameInput.props.onChange({ target: { value: '暮紫' } });
-  if (flags.palettes.some((entry) => entry.name === '暮紫')) throw new Error('typing should not commit the name');
+  nameInput.props.onChange({ target: { value: '夜航' } });
+  if (flags.palettes.some((entry) => entry.name === '夜航')) throw new Error('typing should not commit the name');
   tree = react.render(SettingsPanel, makeProps());
   flatten(tree)
     .find((node) => String(node.props?.className || '').includes('dts-paletteName'))
     .props.onBlur();
-  if (!flags.palettes.some((entry) => entry.name === '暮紫')) throw new Error('blur should commit the name');
+  if (!flags.palettes.some((entry) => entry.name === '夜航')) throw new Error('blur should commit the name');
 
   /* 自定义才能删；删掉后回到自动。 */
   const deleteButton = flatten(tree).find((node) => node.type === 'button' && textOf(node) === '删除');
