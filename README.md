@@ -23,7 +23,13 @@
 
 ## 预览
 
+三套外观：紧凑 / 块面 / 胶囊——只换形状与材质，档位与提交路径不换。
+
 ![三套外观：紧凑 / 块面 / 胶囊](docs/skins.gif)
+
+拇指形状与大小：紧凑与胶囊的拇指可切圆角方 / 圆，三套外观共用标准 / 大两档。
+
+![拇指形状与大小](docs/thumbs.gif)
 
 同一次拖动，两种手感——左边逐档，每跨一档滑过去；右边平滑，拇指逐帧跟手、读数停在已提交档。
 
@@ -32,7 +38,11 @@
 五套特效，强度跟档位走；「跟随外观」时只有胶囊默认带密度粒子。
 渐变可以自己填色标，留空就跟随当前配色。
 
-![前四套特效](docs/effects.gif)
+![五套特效：流光场 / 密度粒子 / 心跳 / 字符点阵 / 渐变](docs/effects.gif)
+
+四套主题配色：昼雾 · 靛夜 / 冷晨 / 暮玫瑰 / 暮紫，七个槽都写成固定色，不依赖主题令牌。
+
+![四套主题配色](docs/palettes.gif)
 
 ## 安装
 
@@ -200,6 +210,8 @@ D:\dsh\dsh-yet-another-slider-thingy
   别的特效没有粒子尾巴。
 - `prefers-reduced-motion` 下光照类停在一帧、像素场只画一张静态图，不做过渡。
 - 拇指不被轨道裁切：轨道本身不设 `overflow:hidden`，可见的 24px 胶囊只用上下 2px 内缩画出来。
+  块面的 1px 描边环画在 `.dts-track::after` 上（`z-index: 4`），拇指是 `z-index: 5`——
+  「大」档拇指高过轨道时，环只出现在轨道上，不会横穿拇指正面。
 - **圆钮是「画」出来的；圆角方按实机确认的约 40%**：紧凑与胶囊的「圆」是一枚内联 SVG
   （`<circle>`，描边 1–2px，填充与描边走配色变量）。圆角方仍用旧版的填充 / 描边 /
   柔影，`border-radius` 按实机对比定在 **40%**：25% 时直边太多（32px 的直边还有
@@ -262,11 +274,12 @@ node scripts/selftest.mjs  # 极小 React 垫片里真跑座位与设置页：�
 - [`src/style.css`](src/style.css)：`dts-*` 全部样式（座位 + 设置页）。
 - [`src/pixel-flow.js`](src/pixel-flow.js)：流光场的像素随机场（域扭曲 fbm + 五阶量化 + Bayer 抖动），
   纯函数、无依赖；预览页直接 `<script>` 引它，和插件共用一份实现。
-- [`preview/effects.html`](preview/effects.html)：四个特效 × 三种外观 × 四个功率档并排的对照页，
+- [`preview/effects.html`](preview/effects.html)：五个特效 × 三种外观 × 四个功率档并排的对照页，
   直接加载 `src/style.css`，不用重启 DSH 就能调（顶栏可切密度粒子的尾迹开 / 关与短 / 中 / 长）；`node preview/shot.mjs [输出目录]` 用 Playwright
   把它截成图（动画会停在固定相位，便于比较）。Playwright 要自备：用 `DSH_PLAYWRIGHT` 指模块路径，
   用 `DSH_CHROMIUM` 指本机浏览器（不设就用 Playwright 自带的）。
-- [`preview/demo.html`](preview/demo.html)：README 三张 GIF 的舞台（三套外观 / 逐档与平滑 / 四套特效），
+- [`preview/demo.html`](preview/demo.html)：README 五张 GIF 的舞台（`skins` 三套外观 / `thumbs` 拇指形状与大小 /
+  `drag` 逐档与平滑 / `effects` 五套特效 / `palettes` 四套主题配色），
   复刻座位同构的 DOM 与真实样式，`renderFrame(t)` 由脚本逐帧驱动；`node preview/gif.mjs [scene|all]`
   用 Playwright 截图、ffmpeg 编码到 `docs/*.gif`（`FFMPEG` 指可执行文件）。
 - 与主题的关系：`dsh-theme-averita` 的「配套插件」之一，互不依赖；主题不再内联这个座位。四套主题配色是写死的 hex 副本，不读主题插件的 `--av-*` / `data-av-*`，没装主题也能用。

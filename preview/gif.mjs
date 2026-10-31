@@ -1,7 +1,7 @@
-/* 把 preview/demo.html 的三个场景录成 README 用的 GIF。
+/* 把 preview/demo.html 的五个场景录成 README 用的 GIF。
    需要自备 Playwright 与 ffmpeg：
      npm i -D playwright
-     DSH_PLAYWRIGHT=/path/to/playwright FFMPEG=/path/to/ffmpeg node preview/gif.mjs [skins|drag|effects|all]
+     DSH_PLAYWRIGHT=/path/to/playwright FFMPEG=/path/to/ffmpeg node preview/gif.mjs [skins|drag|effects|thumbs|palettes|all]
    浏览器默认用 Playwright 自带的 Chromium；要指定时给 DSH_CHROMIUM。
    输出：docs/<scene>.gif（25fps，720×400） */
 import { createRequire } from 'node:module';
@@ -29,7 +29,9 @@ const ffmpeg = process.env.FFMPEG ?? 'ffmpeg';
 const SCENES = {
   skins: { duration: 4800, note: "三套外观" },
   drag: { duration: 3400, note: "逐档 / 平滑" },
-  effects: { duration: 4600, note: "四套特效" },
+  effects: { duration: 5400, note: "五套特效" },
+  thumbs: { duration: 5400, note: "拇指形状 / 大小" },
+  palettes: { duration: 5200, note: "四套主题配色" },
 };
 const FPS = 25;
 

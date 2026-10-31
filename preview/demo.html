@@ -197,6 +197,110 @@
         height: 12px;
       }
 
+      /* ── 拇指矩阵：六种组合并排，一张卡里比较形状与大小 ──────────── */
+      .demo-thumbs {
+        position: absolute;
+        top: 104px;
+        left: 50%;
+        display: grid;
+        grid-template-columns: repeat(2, 290px);
+        gap: 14px 24px;
+        width: 644px;
+        padding: 18px 20px 20px;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow:
+          0 22px 48px rgba(52, 43, 34, 0.12),
+          0 2px 6px rgba(52, 43, 34, 0.06),
+          inset 0 0 0 1px rgba(52, 43, 34, 0.045);
+        transform: translateX(-50%);
+      }
+
+      .demo-thumbCell {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding: 4px 6px 3px;
+        border-radius: 9px;
+        transition: none;
+      }
+
+      .demo-thumbCell--on {
+        background: rgba(47, 109, 246, 0.045);
+      }
+
+      .demo-thumbTrack {
+        display: flex;
+        align-items: center;
+        height: 44px;
+      }
+
+      .demo-thumbTrack .dts-track {
+        width: 100%;
+      }
+
+      .demo-thumbLabel {
+        color: #8b8177;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+      }
+
+      .demo-thumbCell--on .demo-thumbLabel {
+        color: #2f6df6;
+      }
+
+      /* ── 配色：一块滑条 + 一排色片，当前配色高亮 ────────────────── */
+      .demo-paletteStage {
+        position: absolute;
+        top: 92px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .demo-paletteRow {
+        position: absolute;
+        top: 272px;
+        left: 50%;
+        display: flex;
+        gap: 14px;
+        transform: translateX(-50%);
+      }
+
+      .demo-palette {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        width: 86px;
+      }
+
+      .demo-paletteChip {
+        width: 54px;
+        height: 32px;
+        border-radius: 9px;
+        box-shadow:
+          inset 0 0 0 1px rgba(52, 43, 34, 0.08),
+          0 2px 5px rgba(52, 43, 34, 0.08);
+      }
+
+      .demo-palette--on .demo-paletteChip {
+        box-shadow:
+          0 0 0 2px #fff,
+          0 0 0 3px var(--demo-chip-accent, #6f5685),
+          0 3px 8px rgba(52, 43, 34, 0.12);
+      }
+
+      .demo-paletteName {
+        color: #8b8177;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+
+      .demo-palette--on .demo-paletteName {
+        color: #3a332c;
+      }
+
       /* 位置全部由 renderFrame 算好，别让 CSS 过渡抢时间轴。 */
       .stage .dts-thumb,
       .stage .dts-fill,
@@ -217,6 +321,34 @@
         compact: { pad: 6, trackH: 20, thumbW: 12, thumbH: 12, shape: "square", labels: "ticks", dur: 120, ease: [0.25, 0.1, 0.25, 1] },
         claude: { pad: 14, trackH: 28, thumbW: 24, thumbH: 28, shape: "square", labels: "axis", dur: 280, ease: [0.2, 0, 0, 1] },
         codex: { pad: 16, trackH: 28, thumbW: 32, thumbH: 32, shape: "circle", labels: "ticks", dur: 200, ease: [0.23, 1, 0.32, 1] },
+      };
+      /* 和座位里的 SLIDER_GEOMETRY 同一份（按外观 × 形状）：「大」只乘拇指与 pad，
+         轨道高度不动。拇指矩阵场景按这组值搭；外观 scene 仍用 STYLES 的默认值。 */
+      const GEOMETRY = {
+        compact: {
+          square: { pad: 6, trackH: 20, thumbW: 12, thumbH: 12 },
+          circle: { pad: 6, trackH: 20, thumbW: 16, thumbH: 16 },
+        },
+        claude: {
+          square: { pad: 14, trackH: 28, thumbW: 24, thumbH: 28 },
+        },
+        codex: {
+          circle: { pad: 16, trackH: 28, thumbW: 32, thumbH: 32 },
+          square: { pad: 16, trackH: 28, thumbW: 32, thumbH: 32 },
+        },
+      };
+      const KNOB_SCALE = { md: 1, lg: 1.2 };
+      const shapeOf = (styleId, shape) => shape ?? STYLES[styleId].shape;
+      const geometryOf = (styleId, shape, size) => {
+        const base = GEOMETRY[styleId][shapeOf(styleId, shape)];
+        const scale = KNOB_SCALE[size] ?? 1;
+        if (scale === 1) return base;
+        return {
+          pad: Math.round(base.pad * scale),
+          thumbW: Math.round(base.thumbW * scale),
+          thumbH: Math.round(base.thumbH * scale),
+          trackH: base.trackH,
+        };
       };
       /* 和座位里的 THUMB_DISCS 同一份形状数据；只有「圆」走矢量，
          圆角方保留旧版 CSS，所以这里不给 square 条目。 */
@@ -286,10 +418,10 @@
         return svg;
       };
 
-      /* 矢量拇指：默认形状就够预览用，切换外观时整颗替换。 */
-      const buildThumb = (styleId) => {
-        const shape = STYLES[styleId].shape;
-        const disc = THUMB_DISCS[styleId]?.[shape];
+      /* 矢量拇指：只有「圆」走 SVG；形状可以按场景单独指定（拇指矩阵要用）。 */
+      const buildThumb = (styleId, shape) => {
+        const knobShape = shapeOf(styleId, shape);
+        const disc = THUMB_DISCS[styleId]?.[knobShape];
         const thumb = el("span", "dts-thumb" + (disc ? " dts-thumb--disc" : ""));
         if (!disc) return thumb;
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -311,6 +443,25 @@
       /* 和座位同一个公式：pad + ratio * (100% - 2pad)。 */
       const position = (ratio) => `calc(var(--dts-pad) + ${ratio} * (100% - var(--dts-pad) * 2))`;
 
+      /* 渐变：和插件默认一样用配色的三枚变量做循环色带（两倍宽、首尾同色）。 */
+      const GRADIENT_PALETTE = [
+        "var(--dts-fill-color, var(--dsw-alias-state-business-primary))",
+        "var(--dts-accent-color, var(--dsw-alias-state-business-primary))",
+        "var(--dts-particle-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary)))",
+      ];
+      const gradientImage = () => {
+        const tile = [...GRADIENT_PALETTE, GRADIENT_PALETTE[0]];
+        const gaps = 2 * (tile.length - 1);
+        const stops = [];
+        for (let copy = 0; copy < 2; copy += 1) {
+          for (let index = 0; index < tile.length; index += 1) {
+            const spot = (copy * (tile.length - 1) + index) / gaps;
+            stops.push(`${tile[index]} ${(spot * 100).toFixed(3)}%`);
+          }
+        }
+        return `linear-gradient(90deg, ${stops.join(", ")})`;
+      };
+
       function buildFlow() {
         const flow = el("span", "dts-flow");
         flow.dataset.dtsFx = "flow";
@@ -324,7 +475,8 @@
           row.textContent = GLYPHS + GLYPHS;
           glyph.append(row);
         }
-        flow.append(canvas, sheen, soft, strong, glyph);
+        const gradient = el("span", "dts-fxGradient", { "background-image": gradientImage() });
+        flow.append(canvas, sheen, soft, strong, glyph, gradient);
         PARTICLES.forEach((particle, index) => {
           const path = el("span", "dts-flowPath", {
             "--dts-flow-top": particle.top + "px",
@@ -342,12 +494,14 @@
       function menu(styleId, options) {
         const opts = options || {};
         const style = STYLES[styleId];
+        const knobShape = shapeOf(styleId, opts.shape);
+        const geo = geometryOf(styleId, knobShape, opts.size);
         const surface = el("div", "demo-surface");
         const root = el("div", "dts-root");
         root.dataset.dtsStyle = styleId;
         const menuNode = el("div", "dts-menu");
         menuNode.dataset.dtsStyle = styleId;
-        menuNode.dataset.dtsKnob = STYLES[styleId].shape;
+        menuNode.dataset.dtsKnob = knobShape;
         menuNode.setAttribute("role", "menu");
 
         const cell = el("button", "dts-cell");
@@ -366,25 +520,25 @@
         const bandValue = el("span", "dts-bandValue");
         head.append(headLabel, bandValue);
         const scale = el("div", "dts-scale", {
-          "--dts-track-h": style.trackH + "px",
-          "--dts-thumb-w": style.thumbW + "px",
-          "--dts-thumb-h": style.thumbH + "px",
-          "--dts-pad": style.pad + "px",
+          "--dts-track-h": geo.trackH + "px",
+          "--dts-thumb-w": geo.thumbW + "px",
+          "--dts-thumb-h": geo.thumbH + "px",
+          "--dts-pad": geo.pad + "px",
         });
         const track = el("div", "dts-track");
         track.setAttribute("role", "slider");
-        track.style.height = style.trackH + "px";
+        track.style.height = geo.trackH + "px";
         const rail = el("span", "dts-rail");
         const fill = el("span", "dts-fill");
         const flow = opts.effects ? buildFlow() : null;
         if (flow) {
           fill.append(flow.flow);
-          if (style.trackH < 24) flow.flow.dataset.dtsFlow = "thin";
+          if (geo.trackH < 24) flow.flow.dataset.dtsFlow = "thin";
         }
         const dots = EFFORTS.map((_, index) =>
           el("span", "dts-dot", { left: position(index / LEVELS) }),
         );
-        const thumb = buildThumb(styleId);
+        const thumb = buildThumb(styleId, knobShape);
         track.append(rail, fill, ...dots, thumb);
         scale.append(track);
 
@@ -594,7 +748,10 @@
         const entry = makeEntry("compact", { ratio: 0 });
         const slot = el("div", "demo-menu-slot");
         slot.append(entry.dom.surface);
-        stage.append(slot, makeComposer());
+        const composer = makeComposer();
+        stage.append(slot, composer);
+        /* 输入框里的触发器跟菜单的已提交档保持一致，别一个「低」一个「高」。 */
+        const effort = composer.querySelector(".dts-triggerEffort");
         const cursor = addCursor();
 
         const plan = [
@@ -646,6 +803,7 @@
           if (active) ratio = pointerRatio(now, active.start, active.end, active.from / LEVELS, active.to / LEVELS);
           const index = active ? Math.round(ratio * LEVELS) : entry.index;
           entry.move(now, ratio, index, "step");
+          if (effort) effort.textContent = " · " + EFFORTS[entry.index];
           if (active) moveCursor(cursor, entry, ratio);
           cursor.style.opacity = active ? "1" : "0";
           seekAnimations(now);
@@ -710,9 +868,9 @@
         };
       }
 
-      /* ── 场景 3：四套特效 ─────────────────────────────────────────── */
+      /* ── 场景 3：五套特效 ─────────────────────────────────────────── */
       function sceneEffects(stage) {
-        makeCaption("四套特效", "强度跟档位走：越高越亮、越鲜艳、越快");
+        makeCaption("五套特效", "强度跟档位走：越高越亮、越鲜艳、越快");
         const entry = makeEntry("codex", { ratio: 1, index: LEVELS, effects: true });
         const center = el("div", "demo-center demo-center--zoom");
         center.append(entry.dom.surface);
@@ -727,9 +885,10 @@
         entry.dom.flow.flow.style.setProperty("--dts-power", "1");
         const plan = [
           { from: 0, fx: "flow", label: "流光场" },
-          { from: 1150, fx: "dust", label: "密度粒子" },
-          { from: 2300, fx: "pulse", label: "心跳" },
-          { from: 3450, fx: "glyph", label: "字符点阵" },
+          { from: 1080, fx: "dust", label: "密度粒子" },
+          { from: 2160, fx: "pulse", label: "心跳" },
+          { from: 3240, fx: "glyph", label: "字符点阵" },
+          { from: 4320, fx: "gradient", label: "渐变" },
         ];
         return (now) => {
           const current = plan.filter((step) => now >= step.from).at(-1);
@@ -744,17 +903,148 @@
               delete entry.dom.flow.flow.dataset.dtsTrailLength;
             }
             const strong = document.querySelector("#caption strong");
-            if (strong) strong.textContent = "四套特效 · " + current.label;
+            if (strong) strong.textContent = "五套特效 · " + current.label;
           }
           window.__stepFlow(now);
           seekAnimations(now);
         };
       }
 
+      /* ── 场景 4：拇指形状与大小 ─────────────────────────────────────
+         六格并排，几何全部来自 GEOMETRY；每格只换形状 / 大小，不换档位。
+         当前格子的拇指慢慢推开再退回，说明它们都是真滑条，不是贴图。 */
+      function sceneThumbs(stage) {
+        makeCaption("拇指形状与大小", "形状 × 外观 × 标准 / 大，六种组合并排");
+        const plan = [
+          { styleId: "compact", shape: "square", size: "md", label: "紧凑 · 圆角方 · 标准" },
+          { styleId: "compact", shape: "circle", size: "lg", label: "紧凑 · 圆 · 大" },
+          { styleId: "claude", shape: "square", size: "md", label: "块面 · 圆角方 · 标准" },
+          { styleId: "claude", shape: "square", size: "lg", label: "块面 · 圆角方 · 大" },
+          { styleId: "codex", shape: "circle", size: "md", label: "胶囊 · 圆 · 标准" },
+          { styleId: "codex", shape: "square", size: "lg", label: "胶囊 · 圆角方 · 大" },
+        ];
+        const card = el("div", "demo-thumbs");
+        const cells = plan.map((item) => {
+          const geo = geometryOf(item.styleId, item.shape, item.size);
+          const cell = el("div", "demo-thumbCell");
+          cell.dataset.dtsStyle = item.styleId;
+          cell.dataset.dtsKnob = item.shape;
+          const holder = el("div", "demo-thumbTrack");
+          const track = el("div", "dts-track", {
+            "--dts-track-h": geo.trackH + "px",
+            "--dts-thumb-w": geo.thumbW + "px",
+            "--dts-thumb-h": geo.thumbH + "px",
+            "--dts-pad": geo.pad + "px",
+          });
+          const rail = el("span", "dts-rail");
+          const fill = el("span", "dts-fill");
+          const dots = EFFORTS.map((_, index) => el("span", "dts-dot", { left: position(index / LEVELS) }));
+          const thumb = buildThumb(item.styleId, item.shape);
+          track.append(rail, fill, ...dots, thumb);
+          holder.append(track);
+          const label = el("div", "demo-thumbLabel");
+          label.textContent = item.label;
+          cell.append(holder, label);
+          card.append(cell);
+          return { cell, fill, thumb };
+        });
+        stage.append(card);
+
+        const SLOT = 900;
+        return (now) => {
+          const active = Math.floor(now / SLOT) % cells.length;
+          const lift = Math.sin(Math.PI * ((now % SLOT) / SLOT));
+          cells.forEach((cell, index) => {
+            const ratio = index === active ? 0.55 + 0.4 * lift : 0.55;
+            cell.fill.style.width = position(ratio);
+            cell.thumb.style.left = position(ratio);
+            cell.cell.classList.toggle("demo-thumbCell--on", index === active);
+          });
+          const strong = document.querySelector("#caption strong");
+          if (strong) strong.textContent = "拇指 · " + plan[active].label;
+          seekAnimations(now);
+        };
+      }
+
+      /* ── 场景 5：四套主题配色 ───────────────────────────────────────
+         块面把七个槽都用上，最能把配色讲清楚；色片是同一套浅色值的缩略。
+         数值与 src/client.js 的 BUILTIN_PALETTES 对齐，改那边记得回来同步。 */
+      function scenePalettes(stage) {
+        makeCaption("配色 · 昼雾 · 靛夜", "四套主题配色：七个槽都写死，不依赖主题令牌");
+        const palettes = [
+          {
+            name: "昼雾 · 靛夜",
+            light: { fill: "#9d97b0", accent: "#61567d", particle: "#61567d", thumb: "#ffffff", track: "#ebeef1", tick: "#7f8894", text: "#68707b" },
+          },
+          {
+            name: "冷晨",
+            light: { fill: "#939fa7", accent: "#4f6370", particle: "#4f6370", thumb: "#ffffff", track: "#edeeee", tick: "#818d92", text: "#657075" },
+          },
+          {
+            name: "暮玫瑰",
+            light: { fill: "#ad939a", accent: "#7a4f5c", particle: "#7a4f5c", thumb: "#ffffff", track: "#efecec", tick: "#928381", text: "#776b70" },
+          },
+          {
+            name: "暮紫",
+            light: { fill: "#a697b4", accent: "#6f5685", particle: "#6f5685", thumb: "#ffffff", track: "#edecef", tick: "#878192", text: "#6a6073" },
+          },
+        ];
+        const slots = ["fill", "accent", "particle", "thumb", "track", "tick", "text"];
+        const entry = makeEntry("claude", { ratio: 0.55, index: 2 });
+        applyDiscrete(entry, 2);
+        const menuSlot = el("div", "demo-paletteStage");
+        menuSlot.append(entry.dom.surface);
+        stage.append(menuSlot);
+
+        const row = el("div", "demo-paletteRow");
+        const chips = palettes.map((palette) => {
+          const item = el("div", "demo-palette");
+          const chip = el("div", "demo-paletteChip", {
+            "background-image": `linear-gradient(135deg, ${palette.light.fill} 0%, ${palette.light.accent} 58%, ${palette.light.thumb} 100%)`,
+            "--demo-chip-accent": palette.light.accent,
+          });
+          const name = el("div", "demo-paletteName");
+          name.textContent = palette.name;
+          item.append(chip, name);
+          row.append(item);
+          return item;
+        });
+        stage.append(row);
+
+        const SLOT = 1300;
+        let active = -1;
+        return (now) => {
+          const index = Math.floor(now / SLOT) % palettes.length;
+          if (index !== active) {
+            active = index;
+            const palette = palettes[index];
+            for (const slot of slots) {
+              entry.dom.menuNode.style.setProperty(`--dts-${slot}-color`, palette.light[slot]);
+            }
+            chips.forEach((chip, chipIndex) => chip.classList.toggle("demo-palette--on", chipIndex === index));
+            const strong = document.querySelector("#caption strong");
+            if (strong) strong.textContent = "配色 · " + palette.name;
+          }
+          /* 拇指钉在已提交的「高」上：读数 / 圆点 / 拇指三者对齐，
+             这一场只讲颜色，不演拖动。 */
+          const ratio = 2 / LEVELS;
+          entry.dom.thumb.style.left = position(ratio);
+          entry.dom.fill.style.width = position(ratio);
+          seekAnimations(now);
+        };
+      }
+
       const params = new URLSearchParams(location.search);
+      const scenes = {
+        skins: sceneSkins,
+        drag: sceneDrag,
+        effects: sceneEffects,
+        thumbs: sceneThumbs,
+        palettes: scenePalettes,
+      };
       const scene = params.get("scene") || "skins";
       const stage = document.getElementById("stage");
-      const render = scene === "skins" ? sceneSkins(stage) : scene === "drag" ? sceneDrag(stage) : sceneEffects(stage);
+      const render = (scenes[scene] ?? sceneSkins)(stage);
 
       window.renderFrame = (now) => {
         render(now);

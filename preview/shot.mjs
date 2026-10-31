@@ -1,4 +1,4 @@
-/* 把 preview/effects.html 里四个特效各截一张，用于比对。
+/* 把 preview/effects.html 里五个特效各截一张，用于比对。
    需要自备 Playwright（不在插件依赖里）：
      npm i -D playwright            # 或在别的项目里装好
      DSH_PLAYWRIGHT=/path/to/playwright node preview/shot.mjs
@@ -48,7 +48,7 @@ for (const dark of [false, true]) {
   if (dark) await page.click('#themeDark');
   await page.waitForTimeout(300);
   await freeze(320);
-  for (const fx of ['flow', 'dust', 'pulse', 'glyph']) {
+  for (const fx of ['flow', 'dust', 'pulse', 'glyph', 'gradient']) {
     await page.locator(`section[data-fx="${fx}"]`).screenshot({
       path: path.join(out, `${fx}${dark ? '-dark' : ''}.png`),
       animations: 'allow',
