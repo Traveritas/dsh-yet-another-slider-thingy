@@ -276,6 +276,9 @@ node scripts/selftest.mjs  # 极小 React 垫片里真跑座位与设置页：�
   用 Playwright 截图、ffmpeg 编码到 `docs/*.gif`（`FFMPEG` 指可执行文件）。
 - 与主题的关系：`dsh-theme-averita` 的「配套插件」之一，互不依赖；主题不再内联这个座位。四套主题配色是写死的 hex 副本，不读主题插件的 `--av-*` / `data-av-*`，没装主题也能用。
 
+## 致谢
+[LINUX DO](linux.do)
+
 ## License
 
 MIT © 2026 AveritA
