@@ -254,8 +254,10 @@
      共用这层 CSS；圆钮由 .dts-thumb--disc 接管。 */
   border-radius: 40%;
   background: var(--dts-thumb-color, var(--dsw-alias-bg-base));
+  /* 那圈 2px 外环：紧凑的圆角方靠它。配色给了「拇指描边」就整圈按那个色，
+     空槽仍是强调色——和 SVG 圆钮的 --dts-thumb-ring-color 同一个槽。 */
   box-shadow:
-    0 0 0 2px var(--dts-accent-color, var(--dsw-alias-state-business-primary)),
+    0 0 0 2px var(--dts-ring-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary))),
     var(--dsw-elevation-prominent, 0 2px 6px rgba(0, 0, 0, 0.16));
   pointer-events: none;
   transition: left 0.12s ease;
@@ -415,7 +417,9 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 }
 
 [data-dts-style="claude"] .dts-thumb {
-  border: 1px solid rgba(76, 70, 65, 0.2);
+  /* 块面的描边是 1px 内描边（border，不是外环）。配色给了「拇指描边」就用它，
+     空槽仍是原来那层 rgba 暖灰。 */
+  border: 1px solid var(--dts-ring-color, rgba(76, 70, 65, 0.2));
   border-radius: 8px;
   background: var(--dts-thumb-color);
   box-shadow:
@@ -488,20 +492,22 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 }
 
 [data-dts-style="compact"] {
-  /* 紧凑的圆点一直是一圈强调色；SVG 拇指的 stroke 读这一枚。 */
-  --dts-thumb-ring-color: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
+  /* 紧凑的圆点一直是一圈强调色；SVG 拇指的 stroke 读这一枚。
+     配色的「拇指描边」槽（--dts-ring-color）优先，空槽才回落到强调色。 */
+  --dts-thumb-ring-color: var(--dts-ring-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary)));
 }
 
 [data-dts-style="codex"] {
-  /* 圆钮的描边色：SVG 的 stroke 读这个变量。 */
-  --dts-thumb-ring-color: color-mix(in srgb, var(--dsw-alias-label-primary) 36%, transparent);
+  /* 圆钮的描边色：SVG 的 stroke 读这个变量。槽空时仍是 label-primary 压 36%。 */
+  --dts-thumb-ring-color: var(--dts-ring-color, color-mix(in srgb, var(--dsw-alias-label-primary) 36%, transparent));
 }
 
 /* ── 胶囊的圆角方：沿用旧版材质，圆角按 40%（实机确认）───────────────
    出错那版拇指是 32px；25% 的直边实机对比过多，40% 是 32px→12.8。
    填充、0.5px 描边、两层柔影都和旧版一致。 */
 [data-dts-style="codex"][data-dts-knob="square"] .dts-thumb {
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-label-primary) 40%, transparent);
+  /* 0.5px 内描边同样认「拇指描边」槽；空槽回落到 label-primary 压 40%。 */
+  border: 0.5px solid var(--dts-ring-color, color-mix(in srgb, var(--dsw-alias-label-primary) 40%, transparent));
   border-radius: 40%;
   background: var(--dts-thumb-color);
   box-shadow:
@@ -1472,6 +1478,59 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   font-family: var(--ds-font-family-code, Consolas, monospace);
   font-size: 10px;
   letter-spacing: 0.02em;
+}
+
+/* 透明度条：只出现在标了 alpha 的槽上（已过刻度 / 拇指描边 / 特效色），
+   色块和色值之间一条短滑轨。轨道读 label 系列，旋钮跟强调色，和滑条本体不抢戏。 */
+.dts-alphaInput {
+  flex: 0 1 72px;
+  min-width: 48px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dts-alphaInput::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.dts-alphaInput::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dts-alphaInput::-moz-range-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.dts-alphaInput::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
+}
+
+.dts-alphaInput:focus-visible {
+  outline: none;
+}
+
+.dts-alphaInput:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
 }
 
 /* 空槽 = 跟随主题：色块退成近似色，右侧写「跟随主题」并出现 ↺ 恢复。 */

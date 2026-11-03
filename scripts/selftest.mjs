@@ -1392,9 +1392,72 @@ react.reset();
     (node) => String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes('已过刻度'),
   );
   if (tickOnRow === undefined) throw new Error('已过刻度 row missing');
-  flatten(tickOnRow).find((node) => node.type === 'input').props.onChange({ target: { value: '#654321' } });
+  flatten(tickOnRow).find((node) => node.type === 'input' && node.props.type === 'color').props.onChange({ target: { value: '#654321' } });
   if (!flags.picked.includes('dark:tickOn:#654321')) {
     throw new Error('已过刻度 should write the tickOn slot, got ' + flags.picked.join());
+  }
+
+  /* 拇指描边：详细配置里紧跟「已过刻度」，写进去的是 ring。 */
+  if (!detailLabels.includes('拇指描边')) {
+    throw new Error('detailed config should offer the 拇指描边 slot, got ' + detailLabels.join());
+  }
+  if (detailLabels.indexOf('拇指描边') !== detailLabels.indexOf('已过刻度') + 1) {
+    throw new Error('拇指描边 should sit right after 已过刻度, got ' + detailLabels.join());
+  }
+  const ringRow = flatten(tree).find(
+    (node) => String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes('拇指描边'),
+  );
+  if (ringRow === undefined) throw new Error('拇指描边 row missing');
+  flatten(ringRow).find((node) => node.type === 'input' && node.props.type === 'color').props.onChange({ target: { value: '#abc123' } });
+  if (!flags.picked.includes('dark:ring:#abc123')) {
+    throw new Error('拇指描边 should write the ring slot, got ' + flags.picked.join());
+  }
+
+  /* 透明度条：8 位 hex 写进同一个槽；ff 归一成 6 位。 */
+  const { normalizeSlotColor, splitSlotColor, joinSlotColor } = pluginModule.exports.__test;
+  const alphaSlot = { id: 'ring', alpha: true };
+  const solidSlot = { id: 'fill' };
+  if (normalizeSlotColor(alphaSlot, '#11223380') !== '#11223380') {
+    throw new Error('alpha slot should keep 8-digit hex');
+  }
+  if (normalizeSlotColor(alphaSlot, '#112233ff') !== '#112233') {
+    throw new Error('opaque 8-digit hex should collapse to 6 digits');
+  }
+  if (normalizeSlotColor(solidSlot, '#11223380') !== undefined) {
+    throw new Error('non-alpha slots should reject 8-digit hex');
+  }
+  const halves = splitSlotColor('#11223380');
+  if (halves.base !== '#112233' || halves.alpha !== 0x80) {
+    throw new Error('splitSlotColor should split base and alpha, got ' + JSON.stringify(halves));
+  }
+  if (joinSlotColor('#112233', 0x80) !== '#11223380' || joinSlotColor('#112233', 255) !== '#112233') {
+    throw new Error('joinSlotColor should round-trip, got ' + joinSlotColor('#112233', 0x80));
+  }
+  /* 有值的 alpha 槽才出透明度条；空槽与不支持的槽都不出。 */
+  const alphaRange = (row) => flatten(row).find((node) => node.type === 'input' && node.props.type === 'range');
+  const solidRow = flatten(tree).find(
+    (node) => String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes('强调'),
+  );
+  if (solidRow !== undefined && alphaRange(solidRow) !== undefined) {
+    throw new Error('non-alpha slots should not show an alpha slider');
+  }
+  if (flags.palettes.every((entry) => typeof entry.dark?.['ring'] !== 'string')) {
+    throw new Error('ring should have been written before the alpha check');
+  }
+  const ringTree = react.render(SettingsPanel, makeProps());
+  const ringAfter = flatten(ringTree).find(
+    (node) => String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes('拇指描边'),
+  );
+  const rangeInput = ringAfter === undefined ? undefined : alphaRange(ringAfter);
+  if (rangeInput === undefined) throw new Error('filled alpha slot should offer an alpha slider');
+  if (rangeInput.props.value !== 100) {
+    throw new Error('opaque slot should read 100% on the alpha slider, got ' + rangeInput.props.value);
+  }
+  flatten(ringAfter)
+    .filter((node) => node.type === 'input' && node.props.type === 'range')
+    .forEach((node) => node.props.onChange({ target: { value: '50' } }));
+  if (!flags.picked.some((entry) => /^dark:ring:#abc123[0-9a-f]{2}$/.test(entry))) {
+    throw new Error('alpha slider should write 8-digit hex, got ' + flags.picked.join());
   }
 
   /* 改名：输入时不动 store，失焦才提交。 */

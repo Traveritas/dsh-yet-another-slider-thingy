@@ -330,10 +330,14 @@ const STORAGE_KEY_SUFFIXES = [
   "palette",
 ];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+/** 带透明度的槽值：#rrggbbaa（CSS 的 8 位 hex）。 */
+const HEX_ALPHA_COLOR = /^#[0-9a-f]{8}$/i;
 const AUTO_PALETTE = "auto";
 /**
- * 配色槽：前四个是主色；后四个收进「详细配置」，没填就跟随外观材质 / 宿主主题。
+ * 配色槽：前四个是主色；后几个收进「详细配置」，没填就跟随外观材质 / 宿主主题。
  * 空槽不是「黑色」，是「不覆盖」——这是稀疏配色的前提。
+ * alpha: true 的槽额外接受 8 位 hex（#rrggbbaa），其他槽只收 6 位——
+ * 轨道 / 文字这类“面”给透明度很容易糊掉背后的东西，只在确实需要压淡的地方开放。
  */
 const COLOR_SLOTS = [
   { id: "fill", label: "进度", group: "main" },
@@ -341,27 +345,33 @@ const COLOR_SLOTS = [
   { id: "particle", label: "粒子", group: "main" },
   { id: "thumb", label: "拇指", group: "main" },
   { id: "track", label: "轨道", group: "detail" },
-  { id: "tick", label: "刻度", group: "detail" },
+  { id: "tick", label: "刻度", group: "detail", alpha: true },
   /* 「刻度」只管拇指右侧（还没走过）的圆点；左侧被填充盖住那几颗用「已过刻度」，
      留空则各外观按自己的推导给色（紧凑用强调、块面用填充混中性、胶囊用拇指色）。 */
-  { id: "tickOn", varName: "tick-on", label: "已过刻度", group: "detail" },
+  { id: "tickOn", varName: "tick-on", label: "已过刻度", group: "detail", alpha: true },
+  /* 拇指那一圈描边：紧凑是 2px 外环、块面是 1px 内描边、胶囊的圆角方是 0.5px，
+     都读这一枚；留空时各外观按自己的默认（紧凑跟强调、块面与胶囊跟 label-primary）。
+     变量名用 --dts-ring-color 而不是 --dts-thumb-ring-color：后者是各外观内部
+     用来区分 2px 外环 / 36% 描边的中间量，槽值要单独一层才能被它引用。 */
+  { id: "ring", label: "拇指描边", group: "detail", alpha: true },
   { id: "text", label: "文字", group: "detail" },
   /* 特效专用槽：默认留空 = 沿用主色 / 主题色，只在对应特效被选中时出现。 */
-  { id: "flow", label: "流光", group: "fx" },
-  { id: "dust", label: "尘埃", group: "fx" },
-  { id: "pulse", label: "辉光", group: "fx" },
-  { id: "glyph", label: "字符", group: "fx" },
+  { id: "flow", label: "流光", group: "fx", alpha: true },
+  { id: "dust", label: "尘埃", group: "fx", alpha: true },
+  { id: "pulse", label: "辉光", group: "fx", alpha: true },
+  { id: "glyph", label: "字符", group: "fx", alpha: true },
 ];
 const MAIN_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "main");
 const DETAIL_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "detail");
 const FX_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "fx");
 /**
- * 内置配色：前四套只填四个主色，详细四项留空（它们本来就是各外观的中性材质）。
+ * 内置配色：前四套只填四个主色，详细项留空（它们本来就是各外观的中性材质）。
  * 后四套来自 dsh-theme 的四套主题（昼雾 · 靛夜 / 冷晨 / 暮玫瑰 / 暮紫），
  * 七个槽全部写死：浅深两层都从主题令牌合成好、以 hex 存下来，不读宿主的
- * `--dsw-*` 也算得出颜色，所以没装那套主题也能用。「已过刻度」这第八个槽
- * 四套都留空，继续按各外观的推导取色（块面是填充混中性文字色那一套）——
- * 主题令牌里没有对应的语义色，硬凑一个只会跟填充 / 强调打架。
+ * `--dsw-*` 也算得出颜色，所以没装那套主题也能用。「已过刻度」与「拇指描边」
+ * 这两个后加的槽四套都留空，继续按各外观的推导取色（块面是填充混中性文字色、
+ * 描边跟 label-primary）——主题令牌里没有对应的语义色，硬凑一个只会跟
+ * 填充 / 强调打架。
  *
  * 取色规则（theme 侧令牌 → 滑条槽）：
  *   强调 / 粒子 = state-business-primary
@@ -503,6 +513,8 @@ const DEFAULT_COLORS = {
     tick: "#8a8580",
     /* 紧凑的已过刻度就是强调色（0.55 → 1 的透明度差是外观给的，不是槽给的）。 */
     tickOn: "#6f5685",
+    /* 描边槽空着时紧凑用强调色；取样给不透明的同色。 */
+    ring: "#6f5685",
     text: "#77736f",
     particle: "#ffffff",
     /* 特效槽留空时的取样：跟随粒子色（紧凑就是白）。 */
@@ -519,6 +531,8 @@ const DEFAULT_COLORS = {
     tick: "#b6b2af",
     /* 块面：填充色混中性文字色（浅色 25%，深色见 CSS）。取样给浅色那一份。 */
     tickOn: "#707478",
+    /* 1px 内描边的暖灰（rgba(76,70,65,.2) 压到白底上的近似）。 */
+    ring: "#dedbd9",
     text: "#77736f",
     /* 和强调色同值：这一套的填充太浅，白粒子看不见。 */
     particle: "#c6613f",
@@ -535,6 +549,8 @@ const DEFAULT_COLORS = {
     tick: "#6d6b67",
     /* 胶囊：已过的点是「拇指色压到半透明」（见 CSS 的 55%），取样给不透明的白。 */
     tickOn: "#ffffff",
+    /* 圆钮描边是 label-primary 压 36%，压在深色轨道上的近似。 */
+    ring: "#c9c9c9",
     text: "#77736f",
     particle: "#ffffff",
     flow: "#ffffff",
@@ -586,13 +602,25 @@ function normalizePaletteId(value) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : AUTO_PALETTE;
 }
 
-/** 只留已知槽位的 6 位 hex；空槽照样缺席，不做补值。 */
+/**
+ * 槽值是否合法：6 位 hex 一律收；标了 alpha 的槽再收 8 位（#rrggbbaa）。
+ * 8 位里 alpha 是 ff 的等价于 6 位，统一按 6 位存，免得同一个颜色两种写法。
+ */
+function normalizeSlotColor(slot, value) {
+  if (typeof value !== "string") return undefined;
+  if (HEX_COLOR.test(value)) return value.toLowerCase();
+  if (slot.alpha !== true || !HEX_ALPHA_COLOR.test(value)) return undefined;
+  const lower = value.toLowerCase();
+  return lower.endsWith("ff") ? lower.slice(0, 7) : lower;
+}
+
+/** 只留已知槽位的合法色值；空槽照样缺席，不做补值。 */
 function sanitizePaletteColors(raw) {
   const out = {};
   if (raw === null || typeof raw !== "object") return out;
   for (const slot of COLOR_SLOTS) {
-    const value = raw[slot.id];
-    if (typeof value === "string" && HEX_COLOR.test(value)) out[slot.id] = value.toLowerCase();
+    const value = normalizeSlotColor(slot, raw[slot.id]);
+    if (value !== undefined) out[slot.id] = value;
   }
   return out;
 }
@@ -2312,7 +2340,25 @@ function installStyles(ctx) {
   }, "yet-another-slider: stylesheet");
 }
 
+/** 把槽值拆成 6 位底色 + 0–255 的 alpha（8 位 hex 才带 alpha，6 位视为不透明）。 */
+function splitSlotColor(value) {
+  const base = typeof value === "string" ? value.slice(0, 7) : "#000000";
+  const alpha = typeof value === "string" && value.length === 9 ? parseInt(value.slice(7), 16) : 255;
+  return { base, alpha: Number.isFinite(alpha) ? alpha : 255 };
+}
+
+/** 底色 + alpha → 槽值；不透明时回成 6 位，存储里一种颜色只有一种写法。 */
+function joinSlotColor(base, alpha) {
+  const clamped = Math.max(0, Math.min(255, Math.round(alpha)));
+  if (clamped >= 255) return base.toLowerCase();
+  return (base.toLowerCase() + clamped.toString(16).padStart(2, "0")).toLowerCase();
+}
+
 function ColorRow(props) {
+  const { base, alpha } = splitSlotColor(props.value);
+  /* 透明度条只在「槽能带 alpha」且这个槽已经有值时出现：空槽没什么可调，
+     先让用户挑颜色，挑完这条就跟着出来。 */
+  const showAlpha = props.alpha === true && props.overridden;
   return h(
     "div",
     { className: "dts-colorRow" + (props.overridden ? "" : " dts-colorRow--auto") },
@@ -2320,10 +2366,27 @@ function ColorRow(props) {
     h("input", {
       type: "color",
       className: "dts-colorInput",
-      value: props.value,
+      value: base,
       "aria-label": `${props.label}颜色`,
-      onChange: (event) => props.onPick(event.target.value),
+      onChange: (event) => props.onPick(joinSlotColor(event.target.value, alpha)),
     }),
+    showAlpha
+      ? h("input", {
+          type: "range",
+          className: "dts-alphaInput",
+          min: 0,
+          max: 100,
+          step: 1,
+          value: Math.round((alpha / 255) * 100),
+          title: `不透明度 ${Math.round((alpha / 255) * 100)}%`,
+          "aria-label": `${props.label}不透明度`,
+          onChange: (event) => {
+            const percent = Number(event.target.value);
+            if (!Number.isFinite(percent)) return;
+            props.onPick(joinSlotColor(base, (Math.max(0, Math.min(100, percent)) / 100) * 255));
+          },
+        })
+      : null,
     h("span", {
       className: "dts-colorValue" + (props.inherited ? " dts-colorValue--inherited" : ""),
       title: props.inherited ? "深色没单独设置，沿用浅色值" : undefined,
@@ -2361,6 +2424,7 @@ function ColorSection(props) {
       label: slot.label,
       value: paletteSlotColor(palette, slot.id, styleId, mode === "dark"),
       overridden: paletteHasSlot(palette, slot.id),
+      alpha: slot.alpha === true,
       inherited:
         mode === "dark" && palette?.dark?.[slot.id] === undefined && typeof palette?.light?.[slot.id] === "string",
       onPick: (value) => props.onPick(mode, slot.id, value),
@@ -2399,7 +2463,7 @@ function ColorSection(props) {
     ]),
     anyOverride
       ? null
-      : h("span", { className: "dts-colorsHint" }, "这套配色还没动过：主色跟随外观，详细四项跟随主题。"),
+      : h("span", { className: "dts-colorsHint" }, "这套配色还没动过：主色跟随外观，详细项跟随主题。"),
     main.map(rowFor),
     fxSlots.length === 0
       ? null
@@ -2417,7 +2481,7 @@ function ColorSection(props) {
       h(
         "span",
         { className: "dts-colorsHint" },
-        "空槽 = 跟随主题；改了会写进这套配色，深浅各自记。「刻度」只管拇指右边还没走过的圆点，「已过刻度」管左边被填充盖住的那几颗。",
+        "空槽 = 跟随主题；改了会写进这套配色，深浅各自记。「刻度」只管拇指右边还没走过的圆点，「已过刻度」管左边被填充盖住的那几颗。标了透明度条的槽（已过刻度 / 拇指描边 / 特效色）还能再调一遍透明度。",
       ),
     ),
   );
@@ -3086,11 +3150,14 @@ function apply(ctx) {
   };
   const setPaletteColor = (id, mode, slotId, value) => {
     if (mode !== "light" && mode !== "dark") return;
-    if (!COLOR_SLOTS.some((slot) => slot.id === slotId)) return;
-    if (typeof value !== "string" || !HEX_COLOR.test(value)) return;
+    const slot = COLOR_SLOTS.find((entry) => entry.id === slotId);
+    if (slot === undefined) return;
+    /* 带 alpha 的槽收 8 位，其余只收 6 位——校验和存储共用同一套归一。 */
+    const normalized = normalizeSlotColor(slot, value);
+    if (normalized === undefined) return;
     patchPalette(id, (palette) => ({
       ...palette,
-      [mode]: { ...palette[mode], [slotId]: value.toLowerCase() },
+      [mode]: { ...palette[mode], [slotId]: normalized },
     }));
   };
   const clearPaletteColor = (id, slotId) => {
@@ -3449,6 +3516,9 @@ module.exports = {
     paletteVars,
     paletteSlotColor,
     paletteHasSlot,
+    normalizeSlotColor,
+    splitSlotColor,
+    joinSlotColor,
     migrateLegacyColors,
     storedPalettes,
     storedPaletteId,
