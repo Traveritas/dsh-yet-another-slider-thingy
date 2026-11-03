@@ -231,8 +231,10 @@
     opacity 0.12s ease;
 }
 
+/* 「刻度」槽只管拇指右边（还没走过）的圆点；左边被填充盖住的这几颗走「已过刻度」
+   槽，留空时回落到各外观自己的推导——紧凑是强调色，另两套在下面各自覆盖。 */
 .dts-dot--on {
-  background: var(--dts-accent-color, var(--dsw-alias-state-business-primary));
+  background: var(--dts-tick-on-color, var(--dts-accent-color, var(--dsw-alias-state-business-primary)));
   opacity: 1;
 }
 
@@ -406,7 +408,9 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 }
 
 [data-dts-style="claude"] .dts-dot--on {
-  background: color-mix(in srgb, var(--dts-fill-color) 25%, var(--dsw-alias-label-secondary));
+  /* 填充色混中性文字色是「没填槽时的推导」；填了「已过刻度」就整颗按那个色走，
+     不再混——用户既然挑了颜色，就不该再被填充色拉一次。 */
+  background: var(--dts-tick-on-color, color-mix(in srgb, var(--dts-fill-color) 25%, var(--dsw-alias-label-secondary)));
   opacity: 1;
 }
 
@@ -479,7 +483,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
 }
 
 [data-dts-style="codex"] .dts-dot--on {
-  background: color-mix(in srgb, var(--dts-thumb-color) 55%, transparent);
+  /* 胶囊的已过点是拇指色压半透明；填了「已过刻度」就按用户给的，不压透明度。 */
+  background: var(--dts-tick-on-color, color-mix(in srgb, var(--dts-thumb-color) 55%, transparent));
 }
 
 [data-dts-style="compact"] {

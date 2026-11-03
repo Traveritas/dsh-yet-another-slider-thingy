@@ -590,7 +590,7 @@ react.reset();
   const customPalette = {
     id: 'mine',
     name: '我的',
-    light: { track: '#112233', accent: '#445566' },
+    light: { track: '#112233', accent: '#445566', tickOn: '#778899' },
     dark: { accent: '#aabbcc' },
   };
   const tinted = renderStyled('claude', 'high', { palette: 'mine', palettes: [customPalette] });
@@ -607,6 +607,10 @@ react.reset();
   }
   if (tintedMenu.props.style['--dts-accent-color'] !== '#445566') {
     throw new Error('palette accent color was not applied');
+  }
+  /* 已过刻度是第八个槽，CSS 变量按短横线写（tickOn → --dts-tick-on-color）。 */
+  if (tintedMenu.props.style['--dts-tick-on-color'] !== '#778899') {
+    throw new Error('palette tickOn color was not applied');
   }
 
   /* 深色页：只改过的槽取深色值，没改的槽回落到浅色。 */
@@ -1373,6 +1377,25 @@ react.reset();
     .find((node) => String(node.props?.className || '').includes('dts-colorClear'))
     .props.onClick();
   if (!flags.picked.includes('clear:fill')) throw new Error('reset button should clear the slot');
+
+  /* 已过刻度：详细配置里的第八个槽，落在「刻度」后面，写进去的是 tickOn。 */
+  const detailLabels = flatten(tree)
+    .filter((node) => node.props?.className === 'dts-colorLabel')
+    .map((node) => textOf(node));
+  if (!detailLabels.includes('已过刻度')) {
+    throw new Error('detailed config should offer the 已过刻度 slot, got ' + detailLabels.join());
+  }
+  if (detailLabels.indexOf('已过刻度') !== detailLabels.indexOf('刻度') + 1) {
+    throw new Error('已过刻度 should sit right after 刻度, got ' + detailLabels.join());
+  }
+  const tickOnRow = flatten(tree).find(
+    (node) => String(node.props?.className || '').includes('dts-colorRow') && textOf(node).includes('已过刻度'),
+  );
+  if (tickOnRow === undefined) throw new Error('已过刻度 row missing');
+  flatten(tickOnRow).find((node) => node.type === 'input').props.onChange({ target: { value: '#654321' } });
+  if (!flags.picked.includes('dark:tickOn:#654321')) {
+    throw new Error('已过刻度 should write the tickOn slot, got ' + flags.picked.join());
+  }
 
   /* 改名：输入时不动 store，失焦才提交。 */
   const nameInput = flatten(tree).find((node) => String(node.props?.className || '').includes('dts-paletteName'));

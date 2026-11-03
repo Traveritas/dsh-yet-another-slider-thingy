@@ -332,7 +332,7 @@ const STORAGE_KEY_SUFFIXES = [
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const AUTO_PALETTE = "auto";
 /**
- * 配色槽：前四个是主色；后三个收进「详细配置」，没填就跟随外观材质 / 宿主主题。
+ * 配色槽：前四个是主色；后四个收进「详细配置」，没填就跟随外观材质 / 宿主主题。
  * 空槽不是「黑色」，是「不覆盖」——这是稀疏配色的前提。
  */
 const COLOR_SLOTS = [
@@ -342,6 +342,9 @@ const COLOR_SLOTS = [
   { id: "thumb", label: "拇指", group: "main" },
   { id: "track", label: "轨道", group: "detail" },
   { id: "tick", label: "刻度", group: "detail" },
+  /* 「刻度」只管拇指右侧（还没走过）的圆点；左侧被填充盖住那几颗用「已过刻度」，
+     留空则各外观按自己的推导给色（紧凑用强调、块面用填充混中性、胶囊用拇指色）。 */
+  { id: "tickOn", varName: "tick-on", label: "已过刻度", group: "detail" },
   { id: "text", label: "文字", group: "detail" },
   /* 特效专用槽：默认留空 = 沿用主色 / 主题色，只在对应特效被选中时出现。 */
   { id: "flow", label: "流光", group: "fx" },
@@ -353,10 +356,12 @@ const MAIN_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "main");
 const DETAIL_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "detail");
 const FX_SLOTS = COLOR_SLOTS.filter((slot) => slot.group === "fx");
 /**
- * 内置配色：前四套只填四个主色，详细三项留空（它们本来就是各外观的中性材质）。
+ * 内置配色：前四套只填四个主色，详细四项留空（它们本来就是各外观的中性材质）。
  * 后四套来自 dsh-theme 的四套主题（昼雾 · 靛夜 / 冷晨 / 暮玫瑰 / 暮紫），
  * 七个槽全部写死：浅深两层都从主题令牌合成好、以 hex 存下来，不读宿主的
- * `--dsw-*` 也算得出颜色，所以没装那套主题也能用。
+ * `--dsw-*` 也算得出颜色，所以没装那套主题也能用。「已过刻度」这第八个槽
+ * 四套都留空，继续按各外观的推导取色（块面是填充混中性文字色那一套）——
+ * 主题令牌里没有对应的语义色，硬凑一个只会跟填充 / 强调打架。
  *
  * 取色规则（theme 侧令牌 → 滑条槽）：
  *   强调 / 粒子 = state-business-primary
@@ -496,6 +501,8 @@ const DEFAULT_COLORS = {
     thumb: "#ffffff",
     accent: "#6f5685",
     tick: "#8a8580",
+    /* 紧凑的已过刻度就是强调色（0.55 → 1 的透明度差是外观给的，不是槽给的）。 */
+    tickOn: "#6f5685",
     text: "#77736f",
     particle: "#ffffff",
     /* 特效槽留空时的取样：跟随粒子色（紧凑就是白）。 */
@@ -510,6 +517,8 @@ const DEFAULT_COLORS = {
     thumb: "#ffffff",
     accent: "#c6613f",
     tick: "#b6b2af",
+    /* 块面：填充色混中性文字色（浅色 25%，深色见 CSS）。取样给浅色那一份。 */
+    tickOn: "#707478",
     text: "#77736f",
     /* 和强调色同值：这一套的填充太浅，白粒子看不见。 */
     particle: "#c6613f",
@@ -524,6 +533,8 @@ const DEFAULT_COLORS = {
     thumb: "#ffffff",
     accent: "#924ff7",
     tick: "#6d6b67",
+    /* 胶囊：已过的点是「拇指色压到半透明」（见 CSS 的 55%），取样给不透明的白。 */
+    tickOn: "#ffffff",
     text: "#77736f",
     particle: "#ffffff",
     flow: "#ffffff",
@@ -664,7 +675,8 @@ function paletteVars(palette, dark) {
   const vars = {};
   for (const slot of COLOR_SLOTS) {
     const value = colors[slot.id];
-    if (typeof value === "string") vars[`--dts-${slot.id}-color`] = value;
+    /* CSS 变量用短横线写法：tickOn → --dts-tick-on-color，和 --dts-tick-color 并排。 */
+    if (typeof value === "string") vars[`--dts-${slot.varName ?? slot.id}-color`] = value;
   }
   return vars;
 }
@@ -2387,7 +2399,7 @@ function ColorSection(props) {
     ]),
     anyOverride
       ? null
-      : h("span", { className: "dts-colorsHint" }, "这套配色还没动过：主色跟随外观，详细三项跟随主题。"),
+      : h("span", { className: "dts-colorsHint" }, "这套配色还没动过：主色跟随外观，详细四项跟随主题。"),
     main.map(rowFor),
     fxSlots.length === 0
       ? null
@@ -2402,7 +2414,11 @@ function ColorSection(props) {
       { className: "dts-colorsDetails" },
       h("summary", null, "详细配置"),
       DETAIL_SLOTS.map(rowFor),
-      h("span", { className: "dts-colorsHint" }, "空槽 = 跟随主题；改了会写进这套配色，深浅各自记。"),
+      h(
+        "span",
+        { className: "dts-colorsHint" },
+        "空槽 = 跟随主题；改了会写进这套配色，深浅各自记。「刻度」只管拇指右边还没走过的圆点，「已过刻度」管左边被填充盖住的那几颗。",
+      ),
     ),
   );
 }
