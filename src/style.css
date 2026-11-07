@@ -222,6 +222,8 @@
   height: 4px;
   margin: -2px 0 0 -2px;
   border-radius: 50%;
+  /* 宿主给 `*` 挂了 corner-shape: superellipse(1.5)，不写这行 4px 的点会画成小圆角方。 */
+  corner-shape: round;
   background: var(--dts-tick-color, var(--dsw-alias-label-caption));
   opacity: 0.55;
   pointer-events: none;
@@ -249,9 +251,11 @@
   width: var(--dts-thumb-w, 12px);
   height: var(--dts-thumb-h, 12px);
   margin: calc(var(--dts-thumb-h, 12px) * -0.5) 0 0 calc(var(--dts-thumb-w, 12px) * -0.5);
-  /* 圆角方：25% 实机对比直边过多，旧版明显更圆；按 40% 落地
-     （12px→4.8、32px→12.8、24px 轨道→9.6）。紧凑的圆角方和块面
-     共用这层 CSS；圆钮由 .dts-thumb--disc 接管。 */
+  /* 圆角方：按 40% 落地（12px→4.8、32px→12.8、24px 轨道→9.6）。
+     这个数字是 2026-10 在「border-radius 被钳到盒子的一小部分」的误判下校准的；
+     真实原因是宿主给 `*` 挂了 corner-shape: superellipse(1.5)，40% 叠上去才是现在
+     这个圆角方。别把它当半径上限改回 50%——50% 满半径叠 superellipse 会更方。
+     紧凑的圆角方和块面共用这层 CSS；圆钮由 .dts-thumb--disc 接管。 */
   border-radius: 40%;
   background: var(--dts-thumb-color, var(--dsw-alias-bg-base));
   /* 那圈 2px 外环：紧凑的圆角方靠它。配色给了「拇指描边」就整圈按那个色，
@@ -264,9 +268,11 @@
 }
 
 /* ── 矢量拇指（紧凑 / 胶囊的「圆」）────────────────────────────────────
-   圆钮画在 SVG 里：部分渲染环境会把 border-radius 钳到盒子的一小部分
-   （50% / 16px / 999px 在 32px 方块上都只画出约 8px），圆钮会变成圆角方。
-   圆角方反而故意保留旧版 CSS，让那台机器继续给出它原来的圆角。
+   圆钮画在 SVG 里。当年改路径是因为误判「border-radius 被钳到盒子的一小部分」
+   （50% / 16px / 999px 在 32px 方块上都只画出约 8px）——真实原因是宿主给 `*`
+   挂了 corner-shape: superellipse(1.5)。现在要真圆也可以写
+   border-radius: 50% + corner-shape: round；这里保持 SVG 是因为描边与投影都由
+   路径带着，换回 CSS 得重调材质。圆角方仍是 CSS（见上），那套观感不动。
    路径不吃那条规则；描边颜色与填充色仍由配色变量给。 */
 .dts-thumb--disc {
   border: 0;
@@ -456,9 +462,10 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
      轨道撑高一点（DIP 取整、字号、命中区调整），半圆就缩成圆角矩形——胶囊
      立刻看着像块面。 */
   border-radius: 999px;
-  /* 半圆再补一道 clip-path：个别渲染环境会把 border-radius 钳到盒子的一小部分
-     （实测 999px 在 32px 盒子上只画出约 8px），胶囊两端就不再是半圆。路径裁剪
-     不走那条规则。 */
+  /* 半圆再补一道 clip-path：当年以为是「border-radius 被钳到盒子的一小部分」
+     （实测 999px 在 32px 盒子上只画出约 8px），真实原因是宿主给 `*` 挂了
+     corner-shape: superellipse(1.5)，见 .dts-thumb 那条注释。
+     999px + clip-path 仍是「两端永远半圆」最稳的写法，就不换成 corner-shape 了。 */
   clip-path: inset(0 round 999px);
   background: var(--dts-track-color);
   /* 1px 的描边环：0.5px 在 125% / 150% 缩放下不足一个设备像素，被抗锯齿糊成
@@ -502,8 +509,9 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   --dts-thumb-ring-color: var(--dts-ring-color, color-mix(in srgb, var(--dsw-alias-label-primary) 36%, transparent));
 }
 
-/* ── 胶囊的圆角方：沿用旧版材质，圆角按 40%（实机确认）───────────────
-   出错那版拇指是 32px；25% 的直边实机对比过多，40% 是 32px→12.8。
+/* ── 胶囊的圆角方：沿用旧版材质，圆角按 40% ──────────────────────────
+   40% 是在「半径被钳」的误判下、对着实机（superellipse 已经在生效）校准出来的，
+   所以它叠上宿主那条 corner-shape 才是现在这个圆角方；改回 50% 会更方。
    填充、0.5px 描边、两层柔影都和旧版一致。 */
 [data-dts-style="codex"][data-dts-knob="square"] .dts-thumb {
   /* 0.5px 内描边同样认「拇指描边」槽；空槽回落到 label-primary 压 40%。 */
@@ -641,6 +649,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="codex"] {
   width: var(--dts-dust-size, 3px);
   height: var(--dts-dust-size, 3px);
   border-radius: 999px;
+  /* 同 .dts-dot：尘埃是圆点，得显式退出宿主的 superellipse。 */
+  corner-shape: round;
   /* 尘埃专用色槽优先；没填才沿用粒子色。 */
   background: var(--dts-dust-color, var(--dts-particle-color));
   opacity: var(--dts-dust-alpha, 1);
@@ -1074,6 +1084,8 @@ html:has(body[data-ds-dark-theme]) [data-dts-style="claude"] .dts-track:focus-vi
   padding: 0;
   border: none;
   border-radius: 50%;
+  /* 宿主给 `*` 挂了 corner-shape: superellipse(1.5)，不写这行按钮是圆角方。 */
+  corner-shape: round;
   background: none;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;

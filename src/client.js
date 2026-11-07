@@ -215,15 +215,17 @@ const SLIDER_GEOMETRY = {
   },
   codex: {
     /* 圆的拇指比轨道高 8px（上下各凸 4px）：凸得够多，圆才读得出来。
-       圆角方沿用出错那版的 32px，轨道两端 12px（本机钳成 6px）。 */
+       圆角方沿用出错那版的 32px，轨道两端按 40% 取 10px（见 style.css 那条注释）。 */
     circle: { pad: 16, thumbW: 32, thumbH: 32, trackH: 28 },
     square: { pad: 16, thumbW: 32, thumbH: 32, trackH: 28 },
   },
 };
 /**
- * 矢量拇指只给「圆」用：部分渲染环境会把 border-radius 钳到盒子的一小部分
- * （实测 50% / 16px / 999px 在 32px 方块上都只画出约 8px 的圆角），圆钮会变成
- * 圆角方。圆角方则故意保留旧版 CSS，让那台机器继续给出它原来的圆角。
+ * 矢量拇指只给「圆」用。当年是因为误判「border-radius 被钳到盒子的一小部分」
+ * （50% / 16px / 999px 在 32px 方块上都只画出约 8px 的圆角）才改画路径；真实原因是
+ * 宿主给 `*` 挂了 corner-shape: superellipse(1.5)。现在 CSS 圆钮写
+ * border-radius: 50% + corner-shape: round 也能圆，这里保持 SVG 是因为描边与投影
+ * 都由路径带着。圆角方仍是 CSS（那套观感是在 superellipse 下校准的，别动）。
  * viewBox 直接按 1 单位 = 1 CSS px 定尺寸，stroke 也随拇指一起缩放。
  */
 const THUMB_DISCS = {
